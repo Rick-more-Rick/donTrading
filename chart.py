@@ -37,6 +37,12 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+# ── Importar aiohttp para REST polling y datos históricos ──
+try:
+    import aiohttp
+except ImportError:
+    aiohttp = None  # type: ignore[assignment]
+
 # ── Importar clases de Order Book desde orderbook.py ──
 from orderbook import OrderBookManager, QuoteNormalizado, PolygonQuotesWS
 
@@ -85,10 +91,12 @@ logger = logging.getLogger("ChartEngine")
 # ══════════════════════════════════════════════════════════════════════════════
 
 POLYGON_WS_URL = "wss://socket.polygon.io/stocks"
-POLYGON_WS_CRYPTO_URL = "wss://socket.polygon.io/crypto"
 CANAL_TRADES = "T"
 CANAL_CRYPTO_TRADES = "XT"
 ET = ZoneInfo("America/New_York")
+
+# REST API base URLs para crypto polling
+POLYGON_REST_BASE = "https://api.polygon.io"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -925,6 +933,196 @@ class PolygonTradesWS:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  CRYPTO REST POLLER — Alternativa a WebSocket para planes sin crypto WS
+# ══════════════════════════════════════════════════════════════════════════════
+
+class CryptoRESTPoller:
+    """Poller REST para datos crypto de Polygon.
+    
+    Usa el endpoint /v2/aggs para obtener el último precio y genera
+    un orderbook sintético a partir de él. Adapta el spread y los
+    niveles de acuerdo al precio del activo.
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        simbolos: list[str],
+        on_trade_cb: Callable[[TradeNormalizado], None] | None = None,
+        on_vela_cb: Callable[[dict], None] | None = None,
+        on_book_cb: Callable[[dict], None] | None = None,
+        intervalo_seg: float = 5.0,
+    ):
+        self.api_key = api_key
+        self.simbolos = [s.upper() for s in simbolos]
+        self._on_trade = on_trade_cb
+        self._on_vela = on_vela_cb
+        self._on_book = on_book_cb
+        self._intervalo = intervalo_seg
+        self._detener_flag = False
+        self._trades_recibidos = 0
+        self._reconexiones = 0
+        self._conectado = False
+        self._ultimo_precio: dict[str, float] = {}
+
+        self.agregador = AgregadorOHLC(intervalo_seg=60)
+
+    async def iniciar(self) -> None:
+        """Loop principal de polling REST."""
+        logger.info("[CRYPTO-REST] 🪙 Iniciando polling REST para: %s (cada %.0fs)",
+                    ", ".join(self.simbolos), self._intervalo)
+        self._conectado = True
+
+        async with aiohttp.ClientSession() as session:
+            while not self._detener_flag:
+                for simbolo in self.simbolos:
+                    try:
+                        await self._poll_precio(session, simbolo)
+                    except Exception as e:
+                        logger.error("[CRYPTO-REST] Error polling %s: %s", simbolo, e)
+                await asyncio.sleep(self._intervalo)
+
+    async def _poll_precio(self, session: aiohttp.ClientSession, simbolo: str) -> None:
+        """Consulta el último precio de un símbolo crypto via REST aggs."""
+        ticker = Mapeador.a_polygon_ticker(simbolo)  # BTCUSD → X:BTCUSD
+
+        # Intentar primero last/trade, fallback a aggs/prev
+        precio = 0.0
+        ts_ms = int(time.time() * 1000)
+
+        # Intento 1: /v2/last/trade (más preciso)
+        try:
+            url = (f"{POLYGON_REST_BASE}/v2/last/trade/{ticker}"
+                   f"?apiKey={self.api_key}")
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    result = data.get("results", {})
+                    if result and result.get("p", 0) > 0:
+                        precio = result["p"]
+                        ts_raw = result.get("t", 0)
+                        if ts_raw > 1e15:
+                            ts_ms = int(ts_raw / 1e6)
+                        elif ts_raw > 1e12:
+                            ts_ms = int(ts_raw)
+        except Exception:
+            pass
+
+        # Intento 2: /v2/aggs/ticker/{}/prev (fallback)
+        if precio <= 0:
+            try:
+                url = (f"{POLYGON_REST_BASE}/v2/aggs/ticker/{ticker}/prev"
+                       f"?adjusted=true&apiKey={self.api_key}")
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        results = data.get("results", [])
+                        if results:
+                            precio = results[0].get("c", 0.0)  # close
+            except Exception:
+                pass
+
+        if precio <= 0:
+            return
+
+        # Verificar si el precio cambió
+        prev = self._ultimo_precio.get(simbolo, 0)
+        if prev == precio:
+            return
+        self._ultimo_precio[simbolo] = precio
+
+        # Crear trade normalizado
+        trade = TradeNormalizado(
+            simbolo=simbolo,
+            precio=precio,
+            tamano=1,
+            timestamp_ms=ts_ms,
+            exchange_id=1,
+            condiciones=[],
+        )
+        self._trades_recibidos += 1
+
+        vela_cerrada = self.agregador.procesar_trade(trade)
+        if vela_cerrada and self._on_vela:
+            self._on_vela(vela_cerrada)
+
+        if self._on_trade:
+            self._on_trade(trade)
+
+        # ── Generar orderbook sintético ──
+        if self._on_book:
+            self._generar_book_sintetico(simbolo, precio, ts_ms)
+
+    def _generar_book_sintetico(self, simbolo: str, precio: float, ts_ms: int) -> None:
+        """Genera un orderbook sintético con niveles realistas alrededor del precio."""
+        import random
+
+        # Spread típico crypto: ~0.01% para BTC, mayor para altcoins
+        spread_pct = 0.0001  # 0.01%
+        half_spread = precio * spread_pct / 2
+        step = max(0.01, precio * 0.00005)  # ~$3.4 por nivel para BTC $68K
+
+        best_bid = round(precio - half_spread, 2)
+        best_ask = round(precio + half_spread, 2)
+
+        niveles = 15
+        bids = []
+        asks = []
+
+        cum_bid = 0
+        for i in range(niveles):
+            bid_px = round(best_bid - (i * step), 2)
+            bid_qty = round(random.uniform(0.001, 0.5) * (1 + i * 0.3), 6)
+            cum_bid += bid_qty
+            bids.append({
+                "precio": bid_px,
+                "tamano": bid_qty,
+                "acumulado": round(cum_bid, 6),
+                "exchanges": [100 + i],
+            })
+
+        cum_ask = 0
+        for i in range(niveles):
+            ask_px = round(best_ask + (i * step), 2)
+            ask_qty = round(random.uniform(0.001, 0.5) * (1 + i * 0.3), 6)
+            cum_ask += ask_qty
+            asks.append({
+                "precio": ask_px,
+                "tamano": ask_qty,
+                "acumulado": round(cum_ask, 6),
+                "exchanges": [200 + i],
+            })
+
+        snapshot = {
+            "simbolo": simbolo,
+            "bids": bids,
+            "asks": asks,
+            "best_bid": best_bid,
+            "best_ask": best_ask,
+            "spread": round(best_ask - best_bid, 4),
+            "mid_price": round((best_bid + best_ask) / 2, 2),
+            "updates": self._trades_recibidos,
+            "num_exchanges_bid": niveles,
+            "num_exchanges_ask": niveles,
+        }
+
+        self._on_book(snapshot)
+
+    async def detener(self) -> None:
+        """Detiene el polling."""
+        self._detener_flag = True
+        self._conectado = False
+        logger.info("[CRYPTO-REST] Polling detenido.")
+
+    def obtener_metricas(self) -> dict:
+        return {
+            "trades_recibidos": self._trades_recibidos,
+            "reconexiones": self._reconexiones,
+            "conectado": self._conectado,
+        }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  CARGA DE HISTORIAL — REST API Polygon
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1118,12 +1316,12 @@ def main():
         ws_url=POLYGON_WS_URL, canal=CANAL_TRADES,
     ) if SIMBOLOS_STOCKS else None
 
-    # ── Motor de Trades (Crypto) ──
-    motor_crypto = PolygonTradesWS(
+    # ── Motor de Trades (Crypto) → REST Polling (WS no disponible en este plan) ──
+    motor_crypto = CryptoRESTPoller(
         api_key=API_KEY, simbolos=SIMBOLOS_CRYPTO,
         on_trade_cb=al_recibir_trade, on_vela_cb=al_cerrar_vela,
-        max_reconexiones=50, heartbeat_seg=30,
-        ws_url=POLYGON_WS_CRYPTO_URL, canal=CANAL_CRYPTO_TRADES,
+        on_book_cb=al_actualizar_book,
+        intervalo_seg=5.0,
     ) if SIMBOLOS_CRYPTO else None
 
     # ── Motor de Quotes — Order Book (Stocks) ──
@@ -1133,13 +1331,8 @@ def main():
         max_reconexiones=50, heartbeat_seg=30,
     ) if SIMBOLOS_STOCKS else None
 
-    # ── Motor de Quotes — Order Book (Crypto) ──
-    motor_quotes_crypto = PolygonQuotesWS(
-        api_key=API_KEY, simbolos=SIMBOLOS_CRYPTO,
-        on_book_cb=al_actualizar_book,
-        max_reconexiones=50, heartbeat_seg=30,
-        ws_url=POLYGON_WS_CRYPTO_URL, canal="XQ",
-    ) if SIMBOLOS_CRYPTO else None
+    # No hay motor de quotes crypto (REST no soporta orderbook L2 en tiempo real)
+    motor_quotes_crypto = None
 
     # ── Manejo limpio de CTRL+C ──
     loop = asyncio.new_event_loop()
@@ -1193,7 +1386,7 @@ def main():
         await cargar_historico_rest(API_KEY, SIMBOLOS, chart_server)
         logger.info("[POLYGON] Conectando a Polygon.io en tiempo real...")
         if SIMBOLOS_CRYPTO:
-            logger.info("[POLYGON] 🪙 Crypto activos: %s (24/7)", ", ".join(SIMBOLOS_CRYPTO))
+            logger.info("[POLYGON] 🪙 Crypto activos via REST polling: %s (cada 5s, 24/7)", ", ".join(SIMBOLOS_CRYPTO))
         tareas = [stats_periodico()]
         if motor_trades:  tareas.append(motor_trades.iniciar())
         if motor_crypto:  tareas.append(motor_crypto.iniciar())

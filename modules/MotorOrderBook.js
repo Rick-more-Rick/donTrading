@@ -399,6 +399,7 @@
             return { maxVol, maxCum };
         }
 
+
         /** Public snapshot for external tools */
         snapshot() {
             return {
