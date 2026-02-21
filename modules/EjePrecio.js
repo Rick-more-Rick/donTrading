@@ -21,8 +21,8 @@ MD.PriceAxisRenderer = class PriceAxisRenderer {
 
         const step = this._niceStep(range, 20);
         const start = Math.ceil(this.ps.priceMin / step) * step;
-        // Dynamic decimals: use 3 decimals for sub-cent zoom, 2 otherwise
-        const decimals = step < 0.01 ? 3 : 2;
+        // Smart decimals: large prices (crypto) → 0, sub-cent zoom → 3, normal → 2
+        const decimals = step >= 10 ? 0 : step < 0.01 ? 3 : 2;
 
         ctx.font = '10px "JetBrains Mono", monospace';
         ctx.fillStyle = '#475569';
@@ -35,7 +35,7 @@ MD.PriceAxisRenderer = class PriceAxisRenderer {
             ctx.strokeStyle = 'rgba(30,41,59,0.3)';
             ctx.lineWidth = 0.5;
             ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(6, y); ctx.stroke();
-            ctx.fillText('$' + p.toFixed(decimals), w - 6, y + 3);
+            ctx.fillText(decimals === 0 ? '$' + p.toLocaleString() : '$' + p.toFixed(decimals), w - 6, y + 3);
         }
 
         if (currentPrice && currentPrice > 0) {
@@ -50,7 +50,7 @@ MD.PriceAxisRenderer = class PriceAxisRenderer {
                 ctx.fillStyle = '#fff';
                 ctx.font = '11px "JetBrains Mono", monospace';
                 ctx.textAlign = 'center';
-                ctx.fillText('$' + currentPrice.toFixed(decimals), w / 2, y + 4);
+                ctx.fillText(decimals === 0 ? '$' + currentPrice.toLocaleString() : '$' + currentPrice.toFixed(decimals), w / 2, y + 4);
             }
         }
     }
@@ -62,7 +62,7 @@ MD.PriceAxisRenderer = class PriceAxisRenderer {
         const f = r / pow;
         let n;
         if (f <= 1.5) n = 1; else if (f <= 3) n = 2; else if (f <= 7) n = 5; else n = 10;
-        // Allow sub-cent steps (0.001) for deep zoom
-        return Math.max(0.001, Math.min(100, n * pow));
+        // Allow sub-cent steps (0.001) for deep zoom, and large steps for crypto
+        return Math.max(0.001, Math.min(10000, n * pow));
     }
 };

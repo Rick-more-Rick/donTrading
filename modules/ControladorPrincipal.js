@@ -18,6 +18,9 @@
     const WS_ORDERBOOK = 'ws://localhost:8766';
     const RECONNECT_MS = 3000;
 
+    // Símbolos crypto conocidos — el backend ya normaliza (quita X:)
+    const CRYPTO_SYMBOLS = new Set(['BTCUSD', 'ETHUSD', 'DOGEUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'LTCUSD', 'AVAXUSD', 'LINKUSD', 'MATICUSD']);
+
     // ══════════════════════════════════════════════════
     //  CONTROLADOR PRINCIPAL
     // ══════════════════════════════════════════════════
@@ -84,6 +87,25 @@
             this._connectOB();
 
             console.log('%c[SYSTEM] 🚀 MarketDepthCore inicializado', 'color:#06b6d4;font-weight:bold');
+        }
+
+        // ─── UTILIDADES CRYPTO ──────────────────────────────────
+        _isCrypto(sym) {
+            return CRYPTO_SYMBOLS.has((sym || this.currentSymbol || '').toUpperCase());
+        }
+
+        _fmtPrice(p, sym) {
+            if (typeof p !== 'number' || isNaN(p)) return '$—';
+            if (this._isCrypto(sym)) {
+                // Bitcoin: $98,432.15 — con separador de miles
+                return '$' + p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            }
+            return '$' + p.toFixed(2);
+        }
+
+        _fmtLabel(sym) {
+            if (this._isCrypto(sym)) return '🪙 ' + sym;
+            return sym;
         }
 
         // ─── REDIMENSIONAR CANVASES ─────────────────────────────
@@ -372,7 +394,7 @@
             sel.innerHTML = '';
             symbols.forEach(s => {
                 const o = document.createElement('option');
-                o.value = s; o.textContent = s;
+                o.value = s; o.textContent = this._fmtLabel(s);
                 sel.appendChild(o);
             });
             if (symbols.length) { this.currentSymbol = symbols[0]; sel.value = symbols[0]; }
@@ -423,16 +445,28 @@
             badge.textContent = SESSION_SHORT[msg.session] || msg.session;
             badge.className = 'session-badge ' + msg.session;
 
-            // ── NUEVO: Detectar mercado cerrado y mostrar/ocultar overlay ──
+            // ── Detectar mercado cerrado — NO aplicar a crypto (opera 24/7) ──
             const overlay = document.getElementById('market-closed-overlay');
             const wasClosed = this.isMarketClosed;
+
+            // Si estamos viendo crypto, el mercado nunca está "cerrado"
+            if (this._isCrypto()) {
+                this.isMarketClosed = false;
+                if (overlay) overlay.style.display = 'none';
+                if (msg.session === 'CLOSED') {
+                    badge.textContent = '24/7 ACTIVO';
+                    badge.className = 'session-badge REGULAR';
+                    this._setStatus('live', 'LIVE');
+                    console.log(`%c[SESIÓN] 🪙 Crypto 24/7 — mercado stocks cerrado pero crypto activo`, 'color:#f59e0b;font-weight:bold');
+                }
+                return;
+            }
+
             this.isMarketClosed = (msg.session === 'CLOSED');
 
             if (this.isMarketClosed) {
-                // Mostrar overlay de mercado cerrado
                 if (overlay) {
                     overlay.style.display = 'flex';
-                    // Actualizar subtexto con info de fin de semana
                     const sub = document.getElementById('market-closed-sub');
                     if (sub) {
                         sub.textContent = msg.is_weekend
@@ -443,10 +477,8 @@
                 this._setStatus('disconnected', 'CERRADO');
                 console.log(`%c[SESIÓN] 🔴 MERCADO CERRADO ${msg.is_weekend ? '(Fin de Semana)' : ''} | ${msg.time_et}`, 'color:#ef4444;font-weight:bold;font-size:13px');
             } else {
-                // Mercado abierto — ocultar overlay si estaba visible
                 if (overlay) overlay.style.display = 'none';
                 if (wasClosed) {
-                    // Transición de CERRADO → ACTIVO: refrescar status
                     this._setStatus('live', 'LIVE');
                     console.log(`%c[SESIÓN] 🟢 MERCADO ABIERTO — Reanudando datos en tiempo real`, 'color:#22c55e;font-weight:bold;font-size:13px');
                 }
@@ -455,8 +487,9 @@
         }
 
         _onTick(msg) {
-            // ── Ignorar ticks si está pausado manualmente O si el mercado está cerrado ──
-            if (this.isPaused || this.isMarketClosed) return;
+            // ── Ignorar ticks si pausado, o si mercado cerrado Y NO es crypto ──
+            if (this.isPaused) return;
+            if (this.isMarketClosed && !this._isCrypto(msg.symbol)) return;
             const { value: p, time: t } = msg;
             this.rawTicks.push({ time: t, value: p });
             if (this.rawTicks.length > 50000) this.rawTicks = this.rawTicks.slice(-30000);
@@ -470,7 +503,7 @@
             this.tickCountWindow++;
 
             this.aggregator.tick(t, p);
-            document.getElementById('m-last').textContent = '$' + p.toFixed(2);
+            document.getElementById('m-last').textContent = this._fmtPrice(p);
             document.getElementById('m-ticks').textContent = this.totalTicks.toLocaleString();
             document.getElementById('m-candles').textContent = this.aggregator.all().length;
         }
@@ -486,10 +519,10 @@
                 info.style.display = 'block';
                 const up = c.close >= c.open;
                 const cls = up ? 'positive' : 'negative';
-                document.getElementById('ci-open').textContent = '$' + c.open.toFixed(2);
-                document.getElementById('ci-high').textContent = '$' + c.high.toFixed(2);
-                document.getElementById('ci-low').textContent = '$' + c.low.toFixed(2);
-                document.getElementById('ci-close').textContent = '$' + c.close.toFixed(2);
+                document.getElementById('ci-open').textContent = this._fmtPrice(c.open);
+                document.getElementById('ci-high').textContent = this._fmtPrice(c.high);
+                document.getElementById('ci-low').textContent = this._fmtPrice(c.low);
+                document.getElementById('ci-close').textContent = this._fmtPrice(c.close);
                 document.getElementById('ci-vol').textContent = c.volume.toLocaleString();
                 ['ci-open', 'ci-high', 'ci-low', 'ci-close'].forEach(id => {
                     document.getElementById(id).className = 'val ' + cls;
@@ -571,13 +604,13 @@
             const pct = this.firstPrice ? (chg / this.firstPrice * 100) : 0;
             const up = chg >= 0;
 
-            document.getElementById('live-price').textContent = '$' + p.toFixed(2);
+            document.getElementById('live-price').textContent = this._fmtPrice(p);
             document.getElementById('live-price').className = 'ticker-price ' + (up ? 'positive' : 'negative');
             document.getElementById('live-change').textContent = `${up ? '+' : ''}${chg.toFixed(2)} (${pct.toFixed(2)}%)`;
             document.getElementById('live-change').className = 'ticker-change ' + (up ? 'bg-positive' : 'bg-negative');
             document.getElementById('stat-vol').textContent = this.totalVolume > 1000 ? (this.totalVolume / 1000).toFixed(0) + 'K' : this.totalVolume;
-            document.getElementById('stat-high').textContent = this.sessionHigh > -Infinity ? '$' + this.sessionHigh.toFixed(2) : '$—';
-            document.getElementById('stat-low').textContent = this.sessionLow < Infinity ? '$' + this.sessionLow.toFixed(2) : '$—';
+            document.getElementById('stat-high').textContent = this.sessionHigh > -Infinity ? this._fmtPrice(this.sessionHigh) : '$—';
+            document.getElementById('stat-low').textContent = this.sessionLow < Infinity ? this._fmtPrice(this.sessionLow) : '$—';
         }
 
         _updateTimeAxis(all) {

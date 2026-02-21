@@ -441,11 +441,16 @@
         render() {
             if (!this.store.midPrice) return null;
 
+            // Smart price format: crypto ($80K+) gets toLocaleString, stocks get toFixed(2)
+            const _fp = (v) => v >= 1000
+                ? '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                : '$' + v.toFixed(2);
+
             // Update summary bar
-            this._setText(this.midPriceEl, '$' + this.store.midPrice.toFixed(2));
+            this._setText(this.midPriceEl, _fp(this.store.midPrice));
             this._setText(this.spreadEl, '$' + this.store.spread.toFixed(4));
-            this._setText(this.bestBidEl, '$' + this.store.bestBid.toFixed(2));
-            this._setText(this.bestAskEl, '$' + this.store.bestAsk.toFixed(2));
+            this._setText(this.bestBidEl, _fp(this.store.bestBid));
+            this._setText(this.bestAskEl, _fp(this.store.bestAsk));
 
             const rowH = this._rowH;
             let totalRows = this.store.totalLevels;
@@ -506,7 +511,7 @@
                 this._setText(ch[0], bid && bid.monto > 0 ? this._fmtMonto(bid.monto) : '');
                 this._setText(ch[1], bid && bid.cumQty > 0 ? this._fmt(bid.cumQty) : '');
                 this._setText(ch[2], bid && bid.qty > 0 ? this._fmt(bid.qty) : '');
-                this._setText(ch[3], bid ? bid.price.toFixed(2) : '');
+                this._setText(ch[3], bid ? _fp(bid.price).replace('$', '') : '');
 
                 ch[3].className = 'd-bid' + (bid ? (bid.real ? '' : ' filler') : ' empty');
                 ch[2].className = 'd-qty' + (bid && bid.qty > 0 ? ' real-bid' : ' empty');
@@ -514,7 +519,7 @@
                 ch[0].className = 'd-monto' + (bid && bid.monto > 0 ? '' : ' empty');
 
                 // Ask: [4]=price [5]=qty [6]=total [7]=monto
-                this._setText(ch[4], ask ? ask.price.toFixed(2) : '');
+                this._setText(ch[4], ask ? _fp(ask.price).replace('$', '') : '');
                 this._setText(ch[5], ask && ask.qty > 0 ? this._fmt(ask.qty) : '');
                 this._setText(ch[6], ask && ask.cumQty > 0 ? this._fmt(ask.cumQty) : '');
                 this._setText(ch[7], ask && ask.monto > 0 ? this._fmtMonto(ask.monto) : '');

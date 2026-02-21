@@ -30,6 +30,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
+from mapeador_simbolos import Mapeador
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Intentar importar websockets; si no está, dar instrucciones claras
 # ──────────────────────────────────────────────────────────────────────────────
@@ -67,7 +69,9 @@ logger = logging.getLogger("OrderBookEngine")
 # ══════════════════════════════════════════════════════════════════════════════
 
 POLYGON_WS_URL = "wss://socket.polygon.io/stocks"
+POLYGON_WS_CRYPTO_URL = "wss://socket.polygon.io/crypto"
 CANAL_QUOTES = "Q"
+CANAL_CRYPTO_QUOTES = "XQ"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -299,10 +303,13 @@ class PolygonQuotesWS:
         on_book_cb: Callable[[dict], None] | None = None,
         max_reconexiones: int = 50,
         heartbeat_seg: int = 30,
+        ws_url: str = POLYGON_WS_URL,
+        canal: str = CANAL_QUOTES,
     ):
         self.api_key = api_key
         self.simbolos = [s.upper() for s in simbolos]
-        self.ws_url = POLYGON_WS_URL
+        self.ws_url = ws_url
+        self._canal = canal
 
         self._on_quote = on_quote_cb
         self._on_book = on_book_cb
@@ -424,7 +431,12 @@ class PolygonQuotesWS:
 
     async def _suscribir(self) -> None:
         """Suscribe al canal de Quotes para todos los símbolos."""
-        suscripciones = [f"{CANAL_QUOTES}.{s}" for s in self.simbolos]
+        suscripciones = []
+        for s in self.simbolos:
+            if self._canal == CANAL_CRYPTO_QUOTES:
+                suscripciones.append(f"{self._canal}.X:{s}")
+            else:
+                suscripciones.append(f"{self._canal}.{s}")
         params = ",".join(suscripciones)
         payload = json.dumps({"action": "subscribe", "params": params})
         await self._ws.send(payload)
@@ -480,7 +492,7 @@ class PolygonQuotesWS:
         for msg in mensajes:
             tipo_evento = msg.get("ev")
 
-            if tipo_evento == "Q":
+            if tipo_evento in ("Q", "XQ"):
                 await self._procesar_quote(msg)
             elif tipo_evento == "status":
                 logger.debug("Status: %s", msg.get("message", ""))
@@ -493,8 +505,12 @@ class PolygonQuotesWS:
             ap → ask_precio, as → ask_tamano, bx → bid_exchange,
             ax → ask_exchange, t → timestamp_ms
         """
+        # Normalizar símbolo (quitar prefijo X: de crypto)
+        sym_raw = raw.get("sym", "???")
+        sym_limpio = Mapeador.normalizar(sym_raw)
+
         quote = QuoteNormalizado(
-            simbolo=raw.get("sym", "???"),
+            simbolo=sym_limpio,
             bid_precio=raw.get("bp", 0.0),
             bid_tamano=raw.get("bs", 0),
             ask_precio=raw.get("ap", 0.0),

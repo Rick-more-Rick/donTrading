@@ -114,6 +114,17 @@ class Configuracion:
             print(f"   Símbolos: {', '.join(self.SIMBOLOS)}")
             print(f"   Chart WS:     puerto {self.CHART_PORT}")
             print(f"   OrderBook WS:  puerto {self.ORDERBOOK_PORT}")
+
+        # ── Separar símbolos por tipo (stocks vs crypto) ──
+        try:
+            from mapeador_simbolos import Mapeador
+            self.SIMBOLOS_STOCKS, self.SIMBOLOS_CRYPTO = Mapeador.separar_por_tipo(self.SIMBOLOS)
+            if self.SIMBOLOS_CRYPTO:
+                print(f"   📈 Stocks: {', '.join(self.SIMBOLOS_STOCKS)}")
+                print(f"   🪙 Crypto: {', '.join(self.SIMBOLOS_CRYPTO)}")
+        except ImportError:
+            self.SIMBOLOS_STOCKS = self.SIMBOLOS[:]
+            self.SIMBOLOS_CRYPTO = []
     
     def resumen(self) -> str:
         """Retorna un resumen legible de la configuración activa."""

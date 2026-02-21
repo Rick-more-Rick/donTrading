@@ -42,6 +42,7 @@ from orderbook import OrderBookManager, QuoteNormalizado, PolygonQuotesWS
 
 # ── Importar configuración centralizada (lee .env automáticamente) ──
 from configuracion import CONFIG
+from mapeador_simbolos import Mapeador
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Intentar importar websockets; si no está, dar instrucciones claras
@@ -84,7 +85,9 @@ logger = logging.getLogger("ChartEngine")
 # ══════════════════════════════════════════════════════════════════════════════
 
 POLYGON_WS_URL = "wss://socket.polygon.io/stocks"
+POLYGON_WS_CRYPTO_URL = "wss://socket.polygon.io/crypto"
 CANAL_TRADES = "T"
+CANAL_CRYPTO_TRADES = "XT"
 ET = ZoneInfo("America/New_York")
 
 
@@ -677,10 +680,13 @@ class PolygonTradesWS:
         on_vela_cb: Callable[[dict], None] | None = None,
         max_reconexiones: int = 50,
         heartbeat_seg: int = 30,
+        ws_url: str = POLYGON_WS_URL,
+        canal: str = CANAL_TRADES,
     ):
         self.api_key = api_key
         self.simbolos = [s.upper() for s in simbolos]
-        self.ws_url = POLYGON_WS_URL
+        self.ws_url = ws_url
+        self._canal = canal
 
         self._on_trade = on_trade_cb
         self._on_vela = on_vela_cb
@@ -803,7 +809,12 @@ class PolygonTradesWS:
 
     async def _suscribir(self) -> None:
         """Suscribe al canal de Trades para todos los símbolos."""
-        suscripciones = [f"{CANAL_TRADES}.{s}" for s in self.simbolos]
+        suscripciones = []
+        for s in self.simbolos:
+            if self._canal == CANAL_CRYPTO_TRADES:
+                suscripciones.append(f"{self._canal}.X:{s}")
+            else:
+                suscripciones.append(f"{self._canal}.{s}")
         params = ",".join(suscripciones)
         payload = json.dumps({"action": "subscribe", "params": params})
         await self._ws.send(payload)
@@ -859,7 +870,7 @@ class PolygonTradesWS:
         for msg in mensajes:
             tipo_evento = msg.get("ev")
 
-            if tipo_evento == "T":
+            if tipo_evento in ("T", "XT"):
                 await self._procesar_trade(msg)
             elif tipo_evento == "status":
                 logger.debug("Status: %s", msg.get("message", ""))
@@ -871,8 +882,12 @@ class PolygonTradesWS:
             sym → simbolo, p → precio, s → tamano,
             t → timestamp_ms, x → exchange_id, c → condiciones
         """
+        # Normalizar símbolo (quitar prefijo X: de crypto)
+        sym_raw = raw.get("sym", "???")
+        sym_limpio = Mapeador.normalizar(sym_raw)
+
         trade = TradeNormalizado(
-            simbolo=raw.get("sym", "???"),
+            simbolo=sym_limpio,
             precio=raw.get("p", 0.0),
             tamano=raw.get("s", 0),
             timestamp_ms=raw.get("t", 0),
@@ -965,8 +980,10 @@ async def cargar_historico_rest(api_key: str, simbolos: list[str], chart_server)
 
     async with aiohttp.ClientSession() as session:
         for simbolo in simbolos:
+            # Usar ticker de Polygon (con X: para crypto)
+            polygon_ticker = Mapeador.a_polygon_ticker(simbolo)
             url = (
-                f"{url_base}/{simbolo}/range/1/minute/"
+                f"{url_base}/{polygon_ticker}/range/1/minute/"
                 f"{desde.isoformat()}/{hoy.isoformat()}"
                 f"?adjusted=true&sort=asc&limit=50000&apiKey={api_key}"
             )
@@ -1035,6 +1052,8 @@ def main():
     # ════════════════════════════════════════════════════════════
     API_KEY = CONFIG.POLYGON_API_KEY
     SIMBOLOS = CONFIG.SIMBOLOS
+    SIMBOLOS_STOCKS = CONFIG.SIMBOLOS_STOCKS
+    SIMBOLOS_CRYPTO = CONFIG.SIMBOLOS_CRYPTO
     CHART_PORT = CONFIG.CHART_PORT
     ORDERBOOK_PORT = CONFIG.ORDERBOOK_PORT
 
@@ -1091,27 +1110,46 @@ def main():
     def al_actualizar_book(snapshot: dict) -> None:
         ob_server.registrar_snapshot(snapshot)
 
-    # ── Motor de Trades ──
+    # ── Motor de Trades (Stocks) ──
     motor_trades = PolygonTradesWS(
-        api_key=API_KEY, simbolos=SIMBOLOS,
+        api_key=API_KEY, simbolos=SIMBOLOS_STOCKS,
         on_trade_cb=al_recibir_trade, on_vela_cb=al_cerrar_vela,
         max_reconexiones=50, heartbeat_seg=30,
-    )
+        ws_url=POLYGON_WS_URL, canal=CANAL_TRADES,
+    ) if SIMBOLOS_STOCKS else None
 
-    # ── Motor de Quotes (Order Book) ──
+    # ── Motor de Trades (Crypto) ──
+    motor_crypto = PolygonTradesWS(
+        api_key=API_KEY, simbolos=SIMBOLOS_CRYPTO,
+        on_trade_cb=al_recibir_trade, on_vela_cb=al_cerrar_vela,
+        max_reconexiones=50, heartbeat_seg=30,
+        ws_url=POLYGON_WS_CRYPTO_URL, canal=CANAL_CRYPTO_TRADES,
+    ) if SIMBOLOS_CRYPTO else None
+
+    # ── Motor de Quotes — Order Book (Stocks) ──
     motor_quotes = PolygonQuotesWS(
-        api_key=API_KEY, simbolos=SIMBOLOS,
+        api_key=API_KEY, simbolos=SIMBOLOS_STOCKS,
         on_book_cb=al_actualizar_book,
         max_reconexiones=50, heartbeat_seg=30,
-    )
+    ) if SIMBOLOS_STOCKS else None
+
+    # ── Motor de Quotes — Order Book (Crypto) ──
+    motor_quotes_crypto = PolygonQuotesWS(
+        api_key=API_KEY, simbolos=SIMBOLOS_CRYPTO,
+        on_book_cb=al_actualizar_book,
+        max_reconexiones=50, heartbeat_seg=30,
+        ws_url=POLYGON_WS_CRYPTO_URL, canal="XQ",
+    ) if SIMBOLOS_CRYPTO else None
 
     # ── Manejo limpio de CTRL+C ──
     loop = asyncio.new_event_loop()
 
     def manejar_signal():
         logger.info("Senal de interrupcion recibida (CTRL+C)")
-        loop.create_task(motor_trades.detener())
-        loop.create_task(motor_quotes.detener())
+        if motor_trades: loop.create_task(motor_trades.detener())
+        if motor_crypto: loop.create_task(motor_crypto.detener())
+        if motor_quotes: loop.create_task(motor_quotes.detener())
+        if motor_quotes_crypto: loop.create_task(motor_quotes_crypto.detener())
         loop.create_task(chart_server.detener())
         loop.create_task(ob_server.detener())
 
@@ -1132,11 +1170,14 @@ def main():
             trade_count_window[0] = 0
             last_stats_time[0] = now
             cur_session = MarketSession.current()
-            mt = motor_trades.obtener_metricas()
-            mq = motor_quotes.obtener_metricas()
+            mt = motor_trades.obtener_metricas() if motor_trades else {"trades_recibidos": 0}
+            mc = motor_crypto.obtener_metricas() if motor_crypto else {"trades_recibidos": 0}
+            mq = motor_quotes.obtener_metricas() if motor_quotes else {"quotes_recibidos": 0}
+            total_trades = mt.get("trades_recibidos", 0) + mc.get("trades_recibidos", 0)
+            total_quotes = mq.get("quotes_recibidos", 0)
             logger.info(
-                "[STATS] Trades: %d | Quotes: %d | Trades/s: %.1f | %s",
-                mt["trades_recibidos"], mq["quotes_recibidos"], tps,
+                "[STATS] Trades: %d (crypto: %d) | Quotes: %d | Trades/s: %.1f | %s",
+                total_trades, mc.get("trades_recibidos", 0), total_quotes, tps,
                 MarketSession.LABELS[cur_session],
             )
             if cur_session != prev_session:
@@ -1151,31 +1192,39 @@ def main():
         # Cargar historial de velas antes de conectar WebSocket en tiempo real
         await cargar_historico_rest(API_KEY, SIMBOLOS, chart_server)
         logger.info("[POLYGON] Conectando a Polygon.io en tiempo real...")
-        await asyncio.gather(
-            motor_trades.iniciar(),
-            motor_quotes.iniciar(),
-            stats_periodico(),
-        )
+        if SIMBOLOS_CRYPTO:
+            logger.info("[POLYGON] 🪙 Crypto activos: %s (24/7)", ", ".join(SIMBOLOS_CRYPTO))
+        tareas = [stats_periodico()]
+        if motor_trades:  tareas.append(motor_trades.iniciar())
+        if motor_crypto:  tareas.append(motor_crypto.iniciar())
+        if motor_quotes:  tareas.append(motor_quotes.iniciar())
+        if motor_quotes_crypto: tareas.append(motor_quotes_crypto.iniciar())
+        await asyncio.gather(*tareas)
 
     try:
         loop.run_until_complete(ejecutar())
     except KeyboardInterrupt:
         logger.info("Interrupcion por teclado. Cerrando...")
-        loop.run_until_complete(motor_trades.detener())
-        loop.run_until_complete(motor_quotes.detener())
+        if motor_trades: loop.run_until_complete(motor_trades.detener())
+        if motor_crypto: loop.run_until_complete(motor_crypto.detener())
+        if motor_quotes: loop.run_until_complete(motor_quotes.detener())
+        if motor_quotes_crypto: loop.run_until_complete(motor_quotes_crypto.detener())
         loop.run_until_complete(chart_server.detener())
         loop.run_until_complete(ob_server.detener())
     finally:
         loop.close()
 
     # ── Métricas finales ──
-    metricas_trades = motor_trades.obtener_metricas()
-    metricas_quotes = motor_quotes.obtener_metricas()
+    metricas_trades = motor_trades.obtener_metricas() if motor_trades else {"trades_recibidos": 0, "reconexiones": 0}
+    metricas_crypto = motor_crypto.obtener_metricas() if motor_crypto else {"trades_recibidos": 0, "reconexiones": 0}
+    metricas_quotes = motor_quotes.obtener_metricas() if motor_quotes else {"quotes_recibidos": 0, "reconexiones": 0}
     print("\n" + "-" * 50)
     print("  METRICAS FINALES")
-    print(f"  Trades recibidos : {metricas_trades['trades_recibidos']:,d}")
+    print(f"  Trades stocks    : {metricas_trades['trades_recibidos']:,d}")
+    print(f"  Trades crypto    : {metricas_crypto['trades_recibidos']:,d}")
     print(f"  Quotes recibidos : {metricas_quotes['quotes_recibidos']:,d}")
     print(f"  Reconexiones T   : {metricas_trades['reconexiones']}")
+    print(f"  Reconexiones C   : {metricas_crypto['reconexiones']}")
     print(f"  Reconexiones Q   : {metricas_quotes['reconexiones']}")
     print("-" * 50)
 
