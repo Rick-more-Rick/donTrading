@@ -479,13 +479,21 @@ class ChartServer:
                 logger.warning("[HISTORICO] Sin datos para %s en timeframe %ds", simbolo, tf_sec)
                 return
 
-            # Convertir a formato {time, value} usando el close de cada vela
+            # Convertir a formato {time, value} — enviar OHLC completo (4 puntos por barra)
+            # El AgrupadorVelas.js los agrupa en el mismo bucket y crea velas con cuerpo+mechas reales
             ticks = []
             for bar in results:
                 ts_ms = bar.get("t", 0)
-                close = bar.get("c", 0.0)
-                if ts_ms and close:
-                    ticks.append({"time": ts_ms // 1000, "value": close})
+                c = bar.get("c", 0.0)
+                if ts_ms and c:
+                    t = ts_ms // 1000
+                    o = bar.get("o", c)
+                    h = bar.get("h", c)
+                    l = bar.get("l", c)
+                    ticks.append({"time": t, "value": o})  # open
+                    ticks.append({"time": t, "value": h})  # high
+                    ticks.append({"time": t, "value": l})  # low
+                    ticks.append({"time": t, "value": c})  # close
 
             # Stocks: eliminar barras fuera de market hours para timeline continua
             if not Mapeador.es_crypto(simbolo):

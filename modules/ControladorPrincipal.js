@@ -497,13 +497,13 @@
             badge.className = 'session-badge ' + msg.session;
 
             // ── Detectar mercado cerrado — NO aplicar a crypto (opera 24/7) ──
-            const overlay = document.getElementById('market-closed-overlay');
+            const flag = document.getElementById('market-closed-flag');
             const wasClosed = this.isMarketClosed;
 
             // Si estamos viendo crypto, el mercado nunca está "cerrado"
             if (this._isCrypto()) {
                 this.isMarketClosed = false;
-                if (overlay) overlay.style.display = 'none';
+                if (flag) flag.style.display = 'none';
                 if (msg.session === 'CLOSED') {
                     badge.textContent = '24/7 ACTIVO';
                     badge.className = 'session-badge REGULAR';
@@ -516,19 +516,20 @@
             this.isMarketClosed = (msg.session === 'CLOSED');
 
             if (this.isMarketClosed) {
-                if (overlay) {
-                    overlay.style.display = 'flex';
+                // Solo mostrar bandera pequeña — gráfica queda visible y pausada
+                if (flag) {
+                    flag.style.display = 'block';
                     const sub = document.getElementById('market-closed-sub');
                     if (sub) {
                         sub.textContent = msg.is_weekend
-                            ? 'Fin de semana — Reanuda Lunes 4:00 AM ET'
+                            ? 'Reanuda Lun 4:00AM ET'
                             : 'Reanuda próxima sesión';
                     }
                 }
-                this._setStatus('disconnected', 'CERRADO');
-                console.log(`%c[SESIÓN] 🔴 MERCADO CERRADO ${msg.is_weekend ? '(Fin de Semana)' : ''} | ${msg.time_et}`, 'color:#ef4444;font-weight:bold;font-size:13px');
+                // NO cambiar status a 'disconnected' — la gráfica sigue visible
+                console.log(`%c[SESIÓN] 🚩 Mercado cerrado ${msg.is_weekend ? '(Fin de Semana)' : ''} | ${msg.time_et}`, 'color:#ef4444;font-weight:bold');
             } else {
-                if (overlay) overlay.style.display = 'none';
+                if (flag) flag.style.display = 'none';
                 if (wasClosed) {
                     this._setStatus('live', 'LIVE');
                     console.log(`%c[SESIÓN] 🟢 MERCADO ABIERTO — Reanudando datos en tiempo real`, 'color:#22c55e;font-weight:bold;font-size:13px');
@@ -635,6 +636,13 @@
                 this.candleEngine.render(this.chartW, this.chartH, all);
                 this.crosshair.render(this.chartW, this.chartH);
                 this.priceAxisRenderer.render(this.paW, this.paH, this.currentPrice, this.firstPrice);
+                // ── Guardia OB: mantener pool oculto si store vacío (cambio de símbolo) ──
+                const _rr = this.obEngine._renderer;
+                if (_rr && _rr.pool) {
+                    if (!this.obEngine.store.midPrice || this.obEngine.store.midPrice <= 0) {
+                        if (_rr.pool.style.display !== 'none') _rr.pool.style.display = 'none';
+                    }
+                }
                 this.obEngine.syncScale(this.ps.priceMin, this.ps.priceMax);
 
                 if (now - this._lastTimeAxisUpdate > 500) {
