@@ -5,155 +5,192 @@
 // ═══════════════════════════════════════════════════════════════
 window.MD = window.MD || {};
 
-const CANDLE_BODY_RATIO = 0.7;
+const RATIO_CUERPO_VELA = 0.7; // proporción del ancho de la vela que ocupa el cuerpo (70%)
 
 MD.CandleEngine = class CandleEngine {
-    constructor(canvas, priceState) {
-        this.canvas = canvas;
-        this.ctx = canvas.getContext('2d');
-        this.ps = priceState;
-        this.visibleCount = 80;
-        this._panOffset = 0;      // candles back from latest (integer, ≥0)
-        this._panAccumPx = 0;     // sub-candle pixel accumulator
-        this._panFractional = 0;  // fractional candle offset for smooth render
+    constructor(canvas, estadoPrecio) {
+        this.canvas = canvas;                          // elemento canvas HTML donde se dibujan las velas
+        this.ctx = canvas.getContext('2d');          // contexto de dibujo 2D del canvas
+        this.estadoPrecio = estadoPrecio;                    // instancia de SharedPriceState (rango de precios visible)
+        this.velasVisibles = 80;                              // cantidad de velas que caben en pantalla
+        this._desplazamiento = 0;                               // cuántas velas atrás desde la última (entero, ≥0)
+        this._pixelesAcumulados = 0;                               // píxeles acumulados de arrastre parcial (sub-vela)
+        this._fraccionDesplazamiento = 0;                          // offset fraccional de vela para desplazamiento suave
     }
 
     /**
-     * Clamp _panOffset to valid bounds.
-     * maxBack = max candles we can scroll back, leaving at least 1 candle visible.
+     * _limitarDesplazamiento — Asegura que el desplazamiento no se salga de los límites.
+     * maxRetroceso = máximo de velas que podemos retroceder, dejando al menos 1 visible.
+     * @param {number} totalVelas — cantidad total de velas disponibles
      */
-    _clampOffset(totalCandles) {
-        const maxBack = Math.max(0, totalCandles - 1);
-        if (this._panOffset > maxBack) this._panOffset = maxBack;
-        if (this._panOffset < 0) this._panOffset = 0;
+    _limitarDesplazamiento(totalVelas) {
+        const maxRetroceso = Math.max(0, totalVelas - 1);
+        if (this._desplazamiento > maxRetroceso) this._desplazamiento = maxRetroceso;
+        if (this._desplazamiento < 0) this._desplazamiento = 0;
     }
 
     /**
-     * Get the visible slice of candles for auto-range calculation.
+     * visible (velasEnPantalla) — Obtiene el segmento de velas que se ven en pantalla.
+     * Se usa para calcular el auto-rango de precios.
+     * @param {Array} todas — todas las velas disponibles
+     * @returns {Array} — subarray de velas visibles
      */
-    visible(all) {
-        if (!all.length) return [];
-        this._clampOffset(all.length);
+    visible(todas) {
+        if (!todas.length) return [];
+        this._limitarDesplazamiento(todas.length);
 
-        const end = all.length - this._panOffset;
-        const start = Math.max(0, end - this.visibleCount);
-        return all.slice(start, end);
+        const fin = todas.length - this._desplazamiento;       // índice final (exclusivo)
+        const inicio = Math.max(0, fin - this.velasVisibles);     // índice inicial
+        return todas.slice(inicio, fin);
     }
 
-    computeAutoRange(all) {
-        const vis = this.visible(all);
-        if (!vis.length) return;
-        let lo = Infinity, hi = -Infinity;
-        vis.forEach(c => { if (c.low < lo) lo = c.low; if (c.high > hi) hi = c.high; });
-        this.ps.setAutoRange(lo, hi);
+    /**
+     * computeAutoRange (calcularAutoRango) — Calcula el rango mín/máx de precios
+     * a partir de las velas visibles y lo aplica al estado de precios.
+     * @param {Array} todas — todas las velas
+     */
+    computeAutoRange(todas) {
+        const velasEnPantalla = this.visible(todas);
+        if (!velasEnPantalla.length) return;
+        let minimo = Infinity, maximo = -Infinity;
+        velasEnPantalla.forEach(vela => {
+            if (vela.low < minimo) minimo = vela.low;
+            if (vela.high > maximo) maximo = vela.high;
+        });
+        this.estadoPrecio.setAutoRange(minimo, maximo);
     }
 
-    render(w, h, all) {
+    /**
+     * render (dibujar) — Dibuja todas las velas visibles en el canvas.
+     * @param {number} ancho — ancho del canvas en píxeles CSS
+     * @param {number} alto  — alto del canvas en píxeles CSS
+     * @param {Array}  todas — todas las velas disponibles
+     */
+    render(ancho, alto, todas) {
         const ctx = this.ctx;
-        ctx.clearRect(0, 0, w, h);
-        if (!all.length) return;
+        ctx.clearRect(0, 0, ancho, alto); // limpiar canvas completo
+        if (!todas.length) return;
 
-        this._clampOffset(all.length);
+        this._limitarDesplazamiento(todas.length);
 
-        // ── Calculate visible window ──
-        const end = all.length - this._panOffset;
-        if (end <= 0) return;
+        // ── Calcular ventana visible ──
+        const fin = todas.length - this._desplazamiento;
+        if (fin <= 0) return;
 
-        // How many candles CAN we actually show?
-        // Use min(visibleCount, total available) so candles stay a normal size
-        const effectiveCount = Math.min(this.visibleCount, all.length);
-        const idealStart = end - effectiveCount;
-        const start = Math.max(0, idealStart - 1);
-        const actualEnd = Math.min(all.length, end + 1);
-        const vis = all.slice(start, actualEnd);
-        if (!vis.length) return;
+        // ¿Cuántas velas PODEMOS mostrar realmente?
+        // Usar min(velasVisibles, total disponible) para que las velas no se encojan demasiado
+        const cantidadEfectiva = Math.min(this.velasVisibles, todas.length);
+        const inicioIdeal = fin - cantidadEfectiva;
+        const inicioReal = Math.max(0, inicioIdeal - 1);         // 1 extra para suavidad en bordes
+        const finReal = Math.min(todas.length, fin + 1);      // 1 extra al final
+        const velasADibujar = todas.slice(inicioReal, finReal);
+        if (!velasADibujar.length) return;
 
-        // Space is based on effectiveCount so candles don't shrink to nothing
-        const space = w / effectiveCount;
-        const bodyW = Math.max(1, space * CANDLE_BODY_RATIO);
-        const p2y = (p) => this.ps.priceToY(p, h);
+        // Espacio entre velas basado en cantidadEfectiva
+        const espacioEntreVelas = ancho / cantidadEfectiva;
+        const anchoCuerpo = Math.max(1, espacioEntreVelas * RATIO_CUERPO_VELA); // ancho mínimo 1px
+        const precioAPixelY = (precio) => this.estadoPrecio.priceToY(precio, alto); // convertir precio → coordenada Y
 
-        // Fractional pixel shift for sub-candle smooth panning
-        const fracShift = this._panFractional * space;
+        // Desplazamiento fraccional en píxeles para pan suave sub-vela
+        const desplazamientoFraccionalPx = this._fraccionDesplazamiento * espacioEntreVelas;
 
-        // Slot alignment: right-align candles in the chart area
-        // vis[0] at array index `start` maps to slot (start - idealStart)
-        const slotOffset = start - idealStart;
+        // Alineación de ranuras: alinear velas a la derecha del gráfico
+        // velasADibujar[0] en índice `inicioReal` mapea a ranura (inicioReal - inicioIdeal)
+        const offsetRanura = inicioReal - inicioIdeal;
 
-        vis.forEach((c, i) => {
-            const slot = i + slotOffset;
-            const x = slot * space + space / 2 + fracShift;
+        velasADibujar.forEach((vela, indice) => {
+            const ranura = indice + offsetRanura;
+            const centroX = ranura * espacioEntreVelas + espacioEntreVelas / 2 + desplazamientoFraccionalPx;
 
-            // Cull candles that are fully off-screen
-            if (x < -space || x > w + space) return;
+            // Descartar velas completamente fuera de pantalla
+            if (centroX < -espacioEntreVelas || centroX > ancho + espacioEntreVelas) return;
 
-            const up = c.close >= c.open;
-            const bTop = p2y(Math.max(c.open, c.close));
-            const bBot = p2y(Math.min(c.open, c.close));
-            const bH = Math.max(1, bBot - bTop);
-            const col = up ? '#22c55e' : '#ef4444';
+            const esAlcista = vela.close >= vela.open;                          // true = vela verde (subió)
+            const topeCuerpo = precioAPixelY(Math.max(vela.open, vela.close));   // Y del borde superior del cuerpo
+            const baseCuerpo = precioAPixelY(Math.min(vela.open, vela.close));   // Y del borde inferior del cuerpo
+            const alturaCuerpo = Math.max(1, baseCuerpo - topeCuerpo);             // altura mínima 1px
+            const colorVela = esAlcista ? '#22c55e' : '#ef4444';                // verde alcista, rojo bajista
 
-            // Wick
-            ctx.strokeStyle = col; ctx.lineWidth = 1;
+            // Mecha (línea vertical de máximo a mínimo)
+            ctx.strokeStyle = colorVela;
+            ctx.lineWidth = 1;
             ctx.beginPath();
-            ctx.moveTo(x, p2y(c.high));
-            ctx.lineTo(x, p2y(c.low));
+            ctx.moveTo(centroX, precioAPixelY(vela.high));  // punta superior: precio máximo
+            ctx.lineTo(centroX, precioAPixelY(vela.low));   // punta inferior: precio mínimo
             ctx.stroke();
 
-            // Body
-            ctx.fillStyle = up ? 'rgba(34,197,94,0.9)' : 'rgba(239,68,68,0.9)';
-            ctx.fillRect(x - bodyW / 2, bTop, bodyW, bH);
-            ctx.strokeStyle = col; ctx.lineWidth = 0.5;
-            ctx.strokeRect(x - bodyW / 2, bTop, bodyW, bH);
+            // Cuerpo (rectángulo de apertura a cierre)
+            ctx.fillStyle = esAlcista ? 'rgba(34,197,94,0.9)' : 'rgba(239,68,68,0.9)';
+            ctx.fillRect(centroX - anchoCuerpo / 2, topeCuerpo, anchoCuerpo, alturaCuerpo);
+            ctx.strokeStyle = colorVela;
+            ctx.lineWidth = 0.5;
+            ctx.strokeRect(centroX - anchoCuerpo / 2, topeCuerpo, anchoCuerpo, alturaCuerpo);
         });
 
-        // Current price dashed line (only when viewing the latest candles)
-        if (this._panOffset === 0) {
-            const last = all[all.length - 1];
-            if (last) {
-                const y = p2y(last.close);
-                ctx.setLineDash([4, 4]);
-                ctx.strokeStyle = last.close >= last.open ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)';
+        // Línea punteada del precio actual (solo cuando se ven las velas más recientes)
+        if (this._desplazamiento === 0) {
+            const ultimaVela = todas[todas.length - 1];
+            if (ultimaVela) {
+                const posY = precioAPixelY(ultimaVela.close);
+                const esUltimaAlcista = ultimaVela.close >= ultimaVela.open;
+                ctx.setLineDash([4, 4]); // patrón de línea punteada: 4px línea, 4px espacio
+                ctx.strokeStyle = esUltimaAlcista ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)';
                 ctx.lineWidth = 1;
-                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
-                ctx.setLineDash([]);
+                ctx.beginPath();
+                ctx.moveTo(0, posY);
+                ctx.lineTo(ancho, posY);
+                ctx.stroke();
+                ctx.setLineDash([]); // restaurar línea sólida
             }
         }
     }
 
+    /**
+     * zoom (aplicarZoom) — Cambia la cantidad de velas visibles.
+     * Factor > 1 = alejar (ver más velas), factor < 1 = acercar (ver menos velas).
+     * Límites: mínimo 15 velas, máximo 300 velas.
+     * @param {number} factor — multiplicador de zoom
+     */
     zoom(factor) {
-        this.visibleCount = Math.max(15, Math.min(300, Math.round(this.visibleCount * factor)));
+        this.velasVisibles = Math.max(15, Math.min(300, Math.round(this.velasVisibles * factor)));
     }
 
     /**
-     * Pan the chart by deltaPx pixels.
-     * Returns true if at least one full candle was crossed (for auto-range decisions).
-     * Does NOT touch autoRange — the controller decides when to recalculate.
+     * pan (desplazar) — Desplaza el gráfico horizontalmente por deltaPx píxeles.
+     * Convierte píxeles de arrastre en movimiento de velas enteras + fracción suave.
+     * Devuelve true si se cruzó al menos una vela completa.
+     * NO toca autoRange — el controlador decide cuándo recalcular.
+     * @param {number} deltaPx      — píxeles de movimiento horizontal del ratón
+     * @param {number} anchoGrafico — ancho total del gráfico en píxeles
+     * @returns {boolean} — true si se movió al menos una vela entera
      */
-    pan(deltaPx, chartWidth) {
-        const candleWidth = chartWidth / this.visibleCount;
-        this._panAccumPx += deltaPx;
-        let moved = false;
+    pan(deltaPx, anchoGrafico) {
+        const anchoVela = anchoGrafico / this.velasVisibles;  // ancho de una vela en píxeles
+        this._pixelesAcumulados += deltaPx;
+        let seMovio = false;
 
-        // Integer part: move full candles
-        const candleDelta = Math.trunc(this._panAccumPx / candleWidth);
-        if (candleDelta !== 0) {
-            this._panAccumPx -= candleDelta * candleWidth;
-            this._panOffset += candleDelta;
-            if (this._panOffset < 0) this._panOffset = 0;
-            // Note: upper clamp happens in render() via _clampOffset
-            moved = true;
+        // Parte entera: mover velas completas
+        const velasMovidas = Math.trunc(this._pixelesAcumulados / anchoVela);
+        if (velasMovidas !== 0) {
+            this._pixelesAcumulados -= velasMovidas * anchoVela;
+            this._desplazamiento += velasMovidas;
+            if (this._desplazamiento < 0) this._desplazamiento = 0;
+            // Nota: el límite superior se aplica en render() via _limitarDesplazamiento
+            seMovio = true;
         }
 
-        // Fractional part: smooth sub-candle shift
-        this._panFractional = this._panAccumPx / candleWidth;
-        return moved;
+        // Parte fraccional: desplazamiento suave sub-vela
+        this._fraccionDesplazamiento = this._pixelesAcumulados / anchoVela;
+        return seMovio;
     }
 
-    /** Reset all pan state to origin */
+    /**
+     * resetPan (resetearDesplazamiento) — Reinicia todo el estado de pan al origen.
+     * Vuelve a mostrar las velas más recientes.
+     */
     resetPan() {
-        this._panOffset = 0;
-        this._panAccumPx = 0;
-        this._panFractional = 0;
+        this._desplazamiento = 0;
+        this._pixelesAcumulados = 0;
+        this._fraccionDesplazamiento = 0;
     }
 };

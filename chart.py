@@ -457,8 +457,9 @@ class ChartServer:
             timespan = "hour"
             multiplier = tf_sec // 3600
 
+        polygon_ticker = Mapeador.a_polygon_ticker(simbolo)
         url = (
-            f"https://api.polygon.io/v2/aggs/ticker/{simbolo}/range/"
+            f"https://api.polygon.io/v2/aggs/ticker/{polygon_ticker}/range/"
             f"{multiplier}/{timespan}/"
             f"{desde.isoformat()}/{hoy.isoformat()}"
             f"?adjusted=true&sort=asc&limit=5000&apiKey={CONFIG.POLYGON_API_KEY}"
@@ -485,6 +486,10 @@ class ChartServer:
                 close = bar.get("c", 0.0)
                 if ts_ms and close:
                     ticks.append({"time": ts_ms // 1000, "value": close})
+
+            # Stocks: eliminar barras fuera de market hours para timeline continua
+            if not Mapeador.es_crypto(simbolo):
+                ticks = [t for t in ticks if _en_horario_mercado(t["time"])]
 
             # Tomar las últimas 500
             ticks = ticks[-500:]
@@ -530,8 +535,14 @@ class ChartServer:
         """Registra un trade y transmite al navegador en tiempo real.
 
         Los precios se agregan por segundo (último precio del segundo).
+        Stocks: ignora ticks fuera de market hours para evitar huecos muertos.
         """
         ts_seg = timestamp_ms // 1000
+
+        # Stocks: no registrar ticks fuera de horario de mercado
+        if not Mapeador.es_crypto(simbolo) and not _en_horario_mercado(ts_seg):
+            return
+
         self._price_buffer[simbolo][ts_seg] = precio
 
         buf = self._price_buffer[simbolo]
@@ -620,6 +631,15 @@ class OrderBookServer:
                         self._client_symbols[ws] = new_sym
                         if new_sym in self._last_snapshot:
                             await ws.send(json.dumps(self._last_snapshot[new_sym]))
+                        else:
+                            # Enviar snapshot vacío para limpiar OB del símbolo anterior
+                            await ws.send(json.dumps({
+                                "type": "book", "symbol": new_sym,
+                                "simbolo": new_sym,
+                                "bids": [], "asks": [],
+                                "best_bid": 0, "best_ask": 0,
+                                "spread": 0, "mid_price": 0,
+                            }))
                         logger.info("Navegador cambió OrderBook a '%s'", new_sym)
 
         except websockets.ConnectionClosed:
@@ -1123,8 +1143,90 @@ class CryptoRESTPoller:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  ORDER BOOK SINTÉTICO PARA STOCKS (fuera de horario)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _generar_book_sintetico_stock(simbolo: str, precio: float, counter: int = 0) -> dict:
+    """Genera un orderbook sintético para stocks fuera de horario de mercado.
+
+    Parámetros realistas para equities:
+        - Spread: ~$0.01-0.03 (típico para large caps como TSLA/AAPL)
+        - Tamaños: 100-5000 acciones por nivel (lotes institucionales)
+        - Step: $0.01 entre niveles (tick size mínimo regulado)
+        - 20 niveles de profundidad
+    """
+    import random
+
+    # Spread típico stocks: $0.01-0.03 para large caps
+    spread_cents = random.uniform(1, 3)  # centavos
+    half_spread = spread_cents / 200  # en dólares, dividido por 2
+    step = 0.01  # $0.01 — tick size regulado para stocks
+
+    best_bid = round(precio - half_spread, 2)
+    best_ask = round(precio + half_spread, 2)
+    # Asegurar mínimo 1 centavo de spread
+    if best_ask <= best_bid:
+        best_ask = best_bid + 0.01
+
+    niveles = 20
+    bids = []
+    asks = []
+
+    cum_bid = 0
+    for i in range(niveles):
+        bid_px = round(best_bid - (i * step), 2)
+        # Lotes típicos de acciones: 100-5000, aumentan con la profundidad
+        bid_qty = random.randint(100, 800) * (1 + i // 3)
+        cum_bid += bid_qty
+        bids.append({
+            "precio": bid_px,
+            "tamano": bid_qty,
+            "acumulado": cum_bid,
+            "exchanges": [random.choice([4, 7, 11, 12, 15, 19])],  # NYSE, NASDAQ, etc.
+        })
+
+    cum_ask = 0
+    for i in range(niveles):
+        ask_px = round(best_ask + (i * step), 2)
+        ask_qty = random.randint(100, 800) * (1 + i // 3)
+        cum_ask += ask_qty
+        asks.append({
+            "precio": ask_px,
+            "tamano": ask_qty,
+            "acumulado": cum_ask,
+            "exchanges": [random.choice([4, 7, 11, 12, 15, 19])],
+        })
+
+    return {
+        "simbolo": simbolo,
+        "bids": bids,
+        "asks": asks,
+        "best_bid": best_bid,
+        "best_ask": best_ask,
+        "spread": round(best_ask - best_bid, 4),
+        "mid_price": round((best_bid + best_ask) / 2, 2),
+        "updates": counter,
+        "num_exchanges_bid": niveles,
+        "num_exchanges_ask": niveles,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  CARGA DE HISTORIAL — REST API Polygon
 # ══════════════════════════════════════════════════════════════════════════════
+
+def _en_horario_mercado(ts_seg: int) -> bool:
+    """Retorna True si el timestamp está en extended market hours (4AM-8PM ET, Lun-Vie).
+
+    Cubre pre-market (4:00 AM), regular (9:30 AM-4:00 PM), y after-hours (hasta 8:00 PM).
+    Filtra noches y fines de semana para que la timeline sea continua.
+    """
+    dt = datetime.fromtimestamp(ts_seg, tz=ET)
+    # Lunes=0 ... Viernes=4, Sábado=5, Domingo=6
+    if dt.weekday() >= 5:
+        return False
+    return 4 <= dt.hour < 20  # 4:00 AM - 8:00 PM ET
+
 
 def _calcular_dias_historico(tf_sec: int) -> int:
     """Calcula cuántos días de datos necesitamos para obtener ~500 velas.
@@ -1202,11 +1304,15 @@ async def cargar_historico_rest(api_key: str, simbolos: list[str], chart_server)
 
                 # Pre-popular el price buffer del ChartServer con el close de cada vela
                 count = 0
+                es_crypto = Mapeador.es_crypto(simbolo)
                 for bar in results:
                     ts_ms = bar.get("t", 0)    # timestamp en ms
                     close = bar.get("c", 0.0)  # close price
                     if ts_ms and close:
                         ts_seg = ts_ms // 1000
+                        # Stocks: filtrar barras fuera de market hours
+                        if not es_crypto and not _en_horario_mercado(ts_seg):
+                            continue
                         chart_server._price_buffer[simbolo][ts_seg] = close
                         count += 1
 
@@ -1378,16 +1484,48 @@ def main():
                 prev_session = cur_session
             chart_server.broadcast_session()
 
+    # ── Tarea periódica: OB sintético para stocks fuera de horario ──
+    async def stock_book_sintetico_loop():
+        """Genera OB sintético para stocks cuando el mercado está cerrado.
+        
+        Usa el último precio histórico conocido para crear snapshots realistas.
+        Se detiene automáticamente cuando el mercado abre (PolygonQuotesWS toma el relevo).
+        """
+        counter = 0
+        while True:
+            await asyncio.sleep(5)
+            # Solo generar cuando el mercado está CERRADO
+            if MarketSession.esta_abierto():
+                continue
+            if not SIMBOLOS_STOCKS:
+                continue
+            for simbolo in SIMBOLOS_STOCKS:
+                precio = ultimo_precio.get(simbolo, 0)
+                if precio <= 0:
+                    continue
+                counter += 1
+                snapshot = _generar_book_sintetico_stock(simbolo, precio, counter)
+                al_actualizar_book(snapshot)
+
     # ── Ejecutar todo ──
     async def ejecutar():
         await chart_server.iniciar()
         await ob_server.iniciar()
         # Cargar historial de velas antes de conectar WebSocket en tiempo real
         await cargar_historico_rest(API_KEY, SIMBOLOS, chart_server)
+        # Poblar ultimo_precio con el último close del historial para OB sintético
+        for simbolo in SIMBOLOS:
+            buf = chart_server._price_buffer.get(simbolo, {})
+            if buf:
+                max_ts = max(buf.keys())
+                ultimo_precio[simbolo] = buf[max_ts]
+                logger.info("[HISTORICO] 💰 %s: último precio conocido = $%.2f", simbolo, buf[max_ts])
         logger.info("[POLYGON] Conectando a Polygon.io en tiempo real...")
         if SIMBOLOS_CRYPTO:
             logger.info("[POLYGON] 🪙 Crypto activos via REST polling: %s (cada 5s, 24/7)", ", ".join(SIMBOLOS_CRYPTO))
-        tareas = [stats_periodico()]
+        if SIMBOLOS_STOCKS and not MarketSession.esta_abierto():
+            logger.info("[OB SYNTH] 📊 OB sintético activo para stocks off-hours: %s", ", ".join(SIMBOLOS_STOCKS))
+        tareas = [stats_periodico(), stock_book_sintetico_loop()]
         if motor_trades:  tareas.append(motor_trades.iniciar())
         if motor_crypto:  tareas.append(motor_crypto.iniciar())
         if motor_quotes:  tareas.append(motor_quotes.iniciar())

@@ -281,6 +281,7 @@
 
             // Cambio de símbolo
             document.getElementById('symbol-select').addEventListener('change', (e) => {
+                const prevSym = this.currentSymbol;
                 const sym = e.target.value;
                 this.currentSymbol = sym;
                 const msg = JSON.stringify({ action: 'subscribe', symbol: sym });
@@ -288,9 +289,40 @@
                 if (this.wsOB?.readyState === WebSocket.OPEN) this.wsOB.send(msg);
                 this.ps.resetZoom();
                 this.candleEngine.resetPan();
-                // Recalibrar OrderBook para el nuevo activo
+
+                // ══ LIMPIEZA COMPLETA DEL OB ══
+                // 1) Resetear store completo
+                this.obEngine.store.midPrice = 0;
+                this.obEngine.store.bestBid = 0;
+                this.obEngine.store.bestAsk = 0;
+                this.obEngine.store.spread = 0;
+                this.obEngine.store.bidMap.clear();
+                this.obEngine.store.askMap.clear();
+                this.obEngine.store.bidArray = [];
+                this.obEngine.store.askArray = [];
+                this.obEngine.store._dirty = true;
+                this.obEngine.store._version++;
+
+                // 2) Limpiar DOM: summary bar + ocultar pool de filas
+                const rr = this.obEngine._renderer;
+                if (rr) {
+                    if (rr.bestBidEl) rr.bestBidEl.textContent = '$—';
+                    if (rr.bestAskEl) rr.bestAskEl.textContent = '$—';
+                    if (rr.midPriceEl) rr.midPriceEl.textContent = '$—';
+                    if (rr.spreadEl) rr.spreadEl.textContent = '$0.0000';
+                    if (rr.spacer) rr.spacer.style.height = '0px';
+                    rr._lastSpacerH = 0;
+                    // Ocultar TODAS las filas del pool para que no quede nada visible
+                    if (rr.pool) rr.pool.style.display = 'none';
+                }
+                document.getElementById('m-spread').textContent = '$—';
+
+                // 3) Reset banderas de debug
+                this._obFirstMsg = false;
+                this.obEngine._loggedFirst = false;
                 this.obEngine.resetScale();
-                console.log('%c[SYMBOL] 🔄 Cambio a ' + sym, 'color:#a78bfa;font-weight:bold');
+
+                console.log(`%c[SYMBOL] 🔄 ${prevSym} → ${sym} | OB completamente limpiado`, 'color:#a78bfa;font-weight:bold');
             });
         }
 
@@ -368,7 +400,26 @@
                         mid_price: m.mid_price, best_bid: m.best_bid, best_ask: m.best_ask
                     });
                 }
-                if (m.type === 'book' && (!this.currentSymbol || m.symbol === this.currentSymbol)) {
+                // ══ ULTRA-VALIDACIÓN DEL OB ══
+                if (m.type === 'book') {
+                    // FILTRO 1: El símbolo DEBE coincidir exactamente con el activo seleccionado
+                    if (!this.currentSymbol || m.symbol !== this.currentSymbol) {
+                        return; // Rechazar datos de otro activo
+                    }
+                    // FILTRO 2: mid_price debe ser > 0 (snapshot válido con datos reales)
+                    if (!m.mid_price || m.mid_price <= 0) {
+                        return; // Snapshot vacío → no alimentar
+                    }
+                    // FILTRO 3: Debe tener al menos 1 bid Y 1 ask
+                    if (!m.bids?.length || !m.asks?.length) {
+                        return; // Sin niveles → no alimentar
+                    }
+                    // ✅ Pasó todos los filtros — alimentar motor
+                    // Re-mostrar pool si estaba oculto por limpieza de símbolo
+                    const rr = this.obEngine._renderer;
+                    if (rr?.pool && rr.pool.style.display === 'none') {
+                        rr.pool.style.display = '';
+                    }
                     this.obEngine.feedBook(m);
                     if (m.spread !== undefined) {
                         document.getElementById('m-spread').textContent = '$' + m.spread.toFixed(4);

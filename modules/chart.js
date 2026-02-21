@@ -6,516 +6,598 @@
 (() => {
     'use strict';
 
-    const WS_CHART = 'ws://localhost:8765';
-    const WS_ORDERBOOK = 'ws://localhost:8766';
-    const RECONNECT_MS = 3000;
+    const WS_GRAFICO = 'ws://localhost:8765';           // dirección WebSocket del gráfico de velas
+    const WS_LIBRO_ORDENES = 'ws://localhost:8766';     // dirección WebSocket del libro de órdenes
+    const MS_RECONEXION = 3000;                         // milisegundos antes de reintentar conexión
 
     // ══════════════════════════════════════════════════
-    //  MAIN CONTROLLER
+    //  CONTROLADOR PRINCIPAL
     // ══════════════════════════════════════════════════
     class MarketDepthCore {
         constructor() {
-            this.ps = new MD.SharedPriceState();
+            this.estadoPrecio = new MD.SharedPriceState(); // estado compartido de rango de precios
 
-            // DOM refs
-            this.chartWrap = document.getElementById('chart-wrap');
-            this.candleCanvas = document.getElementById('candle-canvas');
-            this.crosshairCanvas = document.getElementById('crosshair-canvas');
-            this.priceAxisEl = document.getElementById('price-axis');
-            this.priceAxisCanvas = document.getElementById('price-axis-canvas');
+            // Referencias al DOM (elementos HTML del documento)
+            this.contenedorGrafico = document.getElementById('chart-wrap');       // div que envuelve el gráfico
+            this.canvasVelas = document.getElementById('candle-canvas');     // canvas donde se dibujan las velas
+            this.canvasCruceta = document.getElementById('crosshair-canvas'); // canvas de la línea cruceta del ratón
+            this.elementoEjePrecio = document.getElementById('price-axis');       // contenedor del eje de precios
+            this.canvasEjePrecio = document.getElementById('price-axis-canvas');// canvas donde se dibuja el eje de precios
 
-            // Engines
-            this.aggregator = new MD.OHLCAggregator(60);
-            this.candleEngine = new MD.CandleEngine(this.candleCanvas, this.ps);
-            this.crosshair = new MD.Crosshair(this.crosshairCanvas);
-            this.priceAxisRenderer = new MD.PriceAxisRenderer(this.priceAxisCanvas, this.ps);
+            // Motores (cada uno maneja una parte del renderizado)
+            this.agrupadorVelas = new MD.OHLCAggregator(60);                                  // agrupa ticks en velas OHLC
+            this.motorVelas = new MD.CandleEngine(this.canvasVelas, this.estadoPrecio);    // dibuja las velas en el canvas
+            this.cruceta = new MD.Crosshair(this.canvasCruceta);                        // dibuja la cruceta del ratón
+            this.renderizadorEje = new MD.PriceAxisRenderer(this.canvasEjePrecio, this.estadoPrecio); // dibuja el eje de precios
 
-            // OrderBook Engine — módulo independiente
-            this.obEngine = new OrderbookEngine(document.getElementById('ob-engine-mount'));
-            window.obEngine = this.obEngine; // Acceso global para herramientas externas
+            // Motor del libro de órdenes — módulo independiente
+            this.motorLibroOrdenes = new OrderbookEngine(document.getElementById('ob-engine-mount'));
+            window.obEngine = this.motorLibroOrdenes; // acceso global para herramientas externas
 
-            // State
-            this.isPaused = false;
-            this.currentSymbol = '';
-            this.currentPrice = 0;
-            this.firstPrice = 0;
-            this.sessionHigh = -Infinity;
-            this.sessionLow = Infinity;
-            this.totalVolume = 0;
-            this.totalTicks = 0;
-            this.totalMessages = 0;
-            this.rawTicks = [];
+            // Estado general de la aplicación
+            this.estaPausado = false;       // si el usuario pausó la recepción de datos
+            this.simboloActual = '';          // símbolo/instrumento activo (ej: "BTCUSDT")
+            this.precioActual = 0;           // último precio recibido
+            this.primerPrecio = 0;           // primer precio de la sesión (para calcular cambio %)
+            this.maximoSesion = -Infinity;   // precio más alto de toda la sesión
+            this.minimoSesion = Infinity;    // precio más bajo de toda la sesión
+            this.volumenTotal = 0;           // cantidad total de ticks procesados como volumen
+            this.totalTicks = 0;           // contador total de ticks recibidos
+            this.totalMensajes = 0;           // contador total de mensajes WebSocket recibidos
+            this.ticksCrudos = [];          // array con todos los ticks crudos {time, value}
 
-            // FPS / TPS
-            this.frameCount = 0;
-            this.lastFpsTime = Date.now();
-            this.fps = 60;
-            this.ticksPerSecond = 0;
-            this.tickCountWindow = 0;
-            this.lastTpsTime = Date.now();
+            // Cuadros por segundo / Ticks por segundo
+            this.contadorCuadros = 0;           // cuántos frames se han dibujado en el último segundo
+            this.ultimoTiempoFps = Date.now();  // timestamp de la última medición de FPS
+            this.cuadrosPorSegundo = 60;          // FPS actual
+            this.ticksPorSegundo = 0;           // TPS actual (ticks recibidos por segundo)
+            this.contadorTicksVentana = 0;           // ticks acumulados en la ventana de 1 segundo
+            this.ultimoTiempoTps = Date.now();  // timestamp de la última medición de TPS
 
-            // Drag states
-            this._axisDrag = false;
-            this._axisDragStartY = 0;
-            this._chartDrag = false;
-            this._chartDragStartX = 0;
+            // Estados de arrastre (drag) del ratón
+            this._arrastreEje = false;   // si el usuario está arrastrando el eje de precios
+            this._arrastreEjeInicioY = 0;      // posición Y donde inició el arrastre del eje
+            this._arrastreGrafico = false;   // si el usuario está arrastrando el gráfico (pan horizontal)
+            this._arrastreGraficoInicioX = 0;      // posición X donde inició el arrastre del gráfico
 
             // WebSockets
-            this.wsChart = null;
-            this.wsOB = null;
+            this.wsGrafico = null;            // conexión WebSocket para datos de precio/velas
+            this.wsLibroOrdenes = null;            // conexión WebSocket para el libro de órdenes
 
-            // Time axis throttle
-            this._lastTimeAxisUpdate = 0;
+            // Throttle del eje de tiempo (evita actualizar demasiado frecuente)
+            this._ultimaActualizacionEjeTiempo = 0;
 
-            this._resize();
-            this._bindEvents();
-            this._startLoop();
-            this._connectChart();
-            this._connectOB();
+            this._redimensionar();
+            this._vincularEventos();
+            this._iniciarBucleDibujo();
+            this._conectarGrafico();
+            this._conectarLibroOrdenes();
 
-            console.log('%c[SYSTEM] 🚀 MarketDepthCore initialized', 'color:#06b6d4;font-weight:bold');
+            console.log('%c[SISTEMA] 🚀 MarketDepthCore inicializado', 'color:#06b6d4;font-weight:bold');
         }
 
-        // ─── RESIZE ─────────────────────────────
-        _resize() {
-            const dpr = window.devicePixelRatio || 1;
+        // ─── REDIMENSIONAR CANVAS ─────────────────────────────
+        _redimensionar() {
+            const proporcionPixeles = window.devicePixelRatio || 1; // ratio de píxeles del dispositivo (retina = 2)
 
-            const sizeCanvas = (canvas, w, h) => {
-                const pw = Math.round(w * dpr);
-                const ph = Math.round(h * dpr);
-                canvas.width = pw; canvas.height = ph;
-                canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
-                canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+            const ajustarCanvas = (canvas, ancho, alto) => {
+                const anchoPixeles = Math.round(ancho * proporcionPixeles);
+                const altoPixeles = Math.round(alto * proporcionPixeles);
+                canvas.width = anchoPixeles;
+                canvas.height = altoPixeles;
+                canvas.style.width = ancho + 'px';
+                canvas.style.height = alto + 'px';
+                canvas.getContext('2d').setTransform(proporcionPixeles, 0, 0, proporcionPixeles, 0, 0);
             };
 
-            const cw = this.chartWrap.clientWidth;
-            const ch = this.chartWrap.clientHeight;
-            [this.candleCanvas, this.crosshairCanvas].forEach(c => sizeCanvas(c, cw, ch));
-            this.chartW = cw;
-            this.chartH = ch;
+            const anchoGrafico = this.contenedorGrafico.clientWidth;
+            const altoGrafico = this.contenedorGrafico.clientHeight;
+            [this.canvasVelas, this.canvasCruceta].forEach(c => ajustarCanvas(c, anchoGrafico, altoGrafico));
+            this.anchoGrafico = anchoGrafico;
+            this.altoGrafico = altoGrafico;
 
-            const paw = this.priceAxisEl.clientWidth;
-            const pah = this.priceAxisEl.clientHeight;
-            sizeCanvas(this.priceAxisCanvas, paw, pah);
-            this.paW = paw;
-            this.paH = pah;
+            const anchoEjePrecio = this.elementoEjePrecio.clientWidth;
+            const altoEjePrecio = this.elementoEjePrecio.clientHeight;
+            ajustarCanvas(this.canvasEjePrecio, anchoEjePrecio, altoEjePrecio);
+            this.anchoEje = anchoEjePrecio;
+            this.altoEje = altoEjePrecio;
 
-            console.log(`%c[RESIZE] 📐 Chart: ${cw}x${ch} | DPR: ${dpr}`, 'color:#94a3b8');
+            console.log(`%c[REDIMENSIÓN] 📐 Gráfico: ${anchoGrafico}x${altoGrafico} | DPR: ${proporcionPixeles}`, 'color:#94a3b8');
         }
 
-        // ─── EVENTS ─────────────────────────────
-        _bindEvents() {
-            window.addEventListener('resize', () => this._resize());
+        // ─── VINCULAR EVENTOS ─────────────────────────────
+        _vincularEventos() {
+            window.addEventListener('resize', () => this._redimensionar());
 
-            // Crosshair on chart
-            this.crosshairCanvas.addEventListener('mousemove', (e) => {
-                if (this._chartDrag) return; // No actualizar crosshair durante pan
-                const r = this.crosshairCanvas.getBoundingClientRect();
-                this.crosshair.mx = e.clientX - r.left;
-                this.crosshair.my = e.clientY - r.top;
-                this.crosshair.on = true;
-                this._updateTooltip();
+            // Cruceta sobre el gráfico — seguir movimiento del ratón
+            this.canvasCruceta.addEventListener('mousemove', (e) => {
+                if (this._arrastreGrafico) return; // no actualizar cruceta durante pan
+                const rectangulo = this.canvasCruceta.getBoundingClientRect();
+                this.cruceta.mx = e.clientX - rectangulo.left;  // posición X del ratón relativa al canvas
+                this.cruceta.my = e.clientY - rectangulo.top;   // posición Y del ratón relativa al canvas
+                this.cruceta.on = true;                          // activar cruceta
+                this._actualizarTooltip();
             });
-            this.crosshairCanvas.addEventListener('mouseleave', () => {
-                this.crosshair.on = false;
+            this.canvasCruceta.addEventListener('mouseleave', () => {
+                this.cruceta.on = false; // desactivar cruceta al salir del canvas
                 document.getElementById('crosshair-info').style.display = 'none';
             });
 
-            // ─── CHART PAN: click+drag → scroll through candle history ───
-            this.crosshairCanvas.addEventListener('mousedown', (e) => {
-                this._chartDrag = true;
-                this._chartDragStartX = e.clientX;
-                this.candleEngine._panAccumPx = 0;
-                this.crosshairCanvas.style.cursor = 'grabbing';
-                console.log('%c[PAN] 🖱️ Drag iniciado en x=' + e.clientX, 'color:#f59e0b');
+            // ─── PAN DEL GRÁFICO: click+arrastrar → desplazar historial de velas ───
+            this.canvasCruceta.addEventListener('mousedown', (e) => {
+                this._arrastreGrafico = true;
+                this._arrastreGraficoInicioX = e.clientX;
+                this.motorVelas._panAccumPx = 0;
+                this.canvasCruceta.style.cursor = 'grabbing'; // cambiar cursor a "mano cerrada"
+                console.log('%c[PAN] 🖱️ Arrastre iniciado en x=' + e.clientX, 'color:#f59e0b');
                 e.preventDefault();
             });
 
-            // Horizontal zoom (scroll on chart area)
-            this.crosshairCanvas.addEventListener('wheel', (e) => {
+            // Zoom horizontal (rueda del ratón sobre el gráfico)
+            this.canvasCruceta.addEventListener('wheel', (e) => {
                 e.preventDefault();
                 if (e.shiftKey) {
-                    const rect = this.crosshairCanvas.getBoundingClientRect();
-                    const centerRatio = (e.clientY - rect.top) / rect.height;
-                    this.ps.applyManualZoom(e.deltaY > 0 ? 5 : -5, centerRatio);
+                    // Shift + rueda = zoom vertical
+                    const rectangulo = this.canvasCruceta.getBoundingClientRect();
+                    const ratioCentro = (e.clientY - rectangulo.top) / rectangulo.height;
+                    this.estadoPrecio.applyManualZoom(e.deltaY > 0 ? 5 : -5, ratioCentro);
                 } else {
-                    this.candleEngine.zoom(e.deltaY > 0 ? 1.08 : 0.92);
+                    // Solo rueda = zoom horizontal (más/menos velas visibles)
+                    this.motorVelas.zoom(e.deltaY > 0 ? 1.08 : 0.92);
                 }
             }, { passive: false });
 
-            // Price axis: wheel → vertical zoom
-            this.priceAxisEl.addEventListener('wheel', (e) => {
+            // Eje de precios: rueda → zoom vertical
+            this.elementoEjePrecio.addEventListener('wheel', (e) => {
                 e.preventDefault();
-                const rect = this.priceAxisEl.getBoundingClientRect();
-                const centerRatio = (e.clientY - rect.top) / rect.height;
-                this.ps.applyManualZoom(e.deltaY > 0 ? 6 : -6, centerRatio);
+                const rectangulo = this.elementoEjePrecio.getBoundingClientRect();
+                const ratioCentro = (e.clientY - rectangulo.top) / rectangulo.height;
+                this.estadoPrecio.applyManualZoom(e.deltaY > 0 ? 6 : -6, ratioCentro);
             }, { passive: false });
 
-            // Price axis: drag → vertical zoom (Zoom Tipo 2)
-            this.priceAxisEl.addEventListener('mousedown', (e) => {
-                this._axisDrag = true;
-                this._axisDragStartY = e.clientY;
-                this.priceAxisEl.style.cursor = 'ns-resize';
+            // Eje de precios: arrastrar → zoom vertical (Zoom Tipo 2)
+            this.elementoEjePrecio.addEventListener('mousedown', (e) => {
+                this._arrastreEje = true;
+                this._arrastreEjeInicioY = e.clientY;
+                this.elementoEjePrecio.style.cursor = 'ns-resize';  // cursor de redimensión vertical
                 document.body.style.cursor = 'ns-resize';
                 e.preventDefault();
             });
 
-            // ─── GLOBAL MOUSE HANDLERS (pan + axis drag) ───
+            // ─── MANEJADORES GLOBALES DE RATÓN (pan + arrastre de eje) ───
             window.addEventListener('mousemove', (e) => {
-                if (this._axisDrag) {
-                    const dy = e.clientY - this._axisDragStartY;
-                    this._axisDragStartY = e.clientY;
-                    const rect = this.priceAxisEl.getBoundingClientRect();
-                    this.ps.applyManualDrag(dy, rect.height);
+                if (this._arrastreEje) {
+                    const deltaY = e.clientY - this._arrastreEjeInicioY; // distancia vertical arrastrada
+                    this._arrastreEjeInicioY = e.clientY;
+                    const rectangulo = this.elementoEjePrecio.getBoundingClientRect();
+                    this.estadoPrecio.applyManualDrag(deltaY, rectangulo.height);
                 }
-                if (this._chartDrag) {
-                    const dx = e.clientX - this._chartDragStartX;
-                    this._chartDragStartX = e.clientX;
-                    if (dx !== 0) {
-                        this.candleEngine.pan(-dx, this.chartW);
+                if (this._arrastreGrafico) {
+                    const deltaX = e.clientX - this._arrastreGraficoInicioX; // distancia horizontal arrastrada
+                    this._arrastreGraficoInicioX = e.clientX;
+                    if (deltaX !== 0) {
+                        this.motorVelas.pan(-deltaX, this.anchoGrafico);
                     }
                 }
             });
 
             window.addEventListener('mouseup', () => {
-                if (this._axisDrag) {
-                    this._axisDrag = false;
-                    this.priceAxisEl.style.cursor = 'ns-resize';
+                if (this._arrastreEje) {
+                    this._arrastreEje = false;
+                    this.elementoEjePrecio.style.cursor = 'ns-resize';
                     document.body.style.cursor = '';
                 }
-                if (this._chartDrag) {
-                    this._chartDrag = false;
-                    this.crosshairCanvas.style.cursor = 'crosshair';
-                    // Snap to grid: reset fractional offset
-                    this.candleEngine._panFractional = 0;
-                    this.candleEngine._panAccumPx = 0;
-                    console.log('%c[PAN] 🖱️ Drag terminado | offset=' + this.candleEngine._panOffset, 'color:#22c55e');
+                if (this._arrastreGrafico) {
+                    this._arrastreGrafico = false;
+                    this.canvasCruceta.style.cursor = 'crosshair'; // restaurar cursor cruceta
+                    // Ajustar a cuadrícula: resetear offset fraccional
+                    this.motorVelas._panFractional = 0;
+                    this.motorVelas._panAccumPx = 0;
+                    console.log('%c[PAN] 🖱️ Arrastre terminado | offset=' + this.motorVelas._panOffset, 'color:#22c55e');
                 }
             });
 
-            // Double click: price axis → reset zoom, chart → reset pan
-            this.priceAxisEl.addEventListener('dblclick', () => {
-                this.ps.resetZoom();
+            // Doble click: eje de precios → resetear zoom, gráfico → resetear pan
+            this.elementoEjePrecio.addEventListener('dblclick', () => {
+                this.estadoPrecio.resetZoom();
             });
 
-            this.crosshairCanvas.addEventListener('dblclick', () => {
-                this.candleEngine._panOffset = 0;
-                this.candleEngine._panFractional = 0;
-                this.candleEngine._panAccumPx = 0;
-                this.ps.autoRange = true;
+            this.canvasCruceta.addEventListener('dblclick', () => {
+                this.motorVelas._panOffset = 0;
+                this.motorVelas._panFractional = 0;
+                this.motorVelas._panAccumPx = 0;
+                this.estadoPrecio.autoRange = true;
             });
 
-            // Toolbar buttons
+            // Botones de la barra de herramientas
             document.getElementById('btn-pause').addEventListener('click', (e) => {
-                this.isPaused = !this.isPaused;
-                e.target.textContent = this.isPaused ? '▶ Reanudar' : '⏸ Pausar';
-                this._setStatus(this.isPaused ? 'connecting' : 'live', this.isPaused ? 'PAUSED' : 'LIVE');
+                this.estaPausado = !this.estaPausado;
+                e.target.textContent = this.estaPausado ? '▶ Reanudar' : '⏸ Pausar';
+                this._establecerEstado(
+                    this.estaPausado ? 'connecting' : 'live',
+                    this.estaPausado ? 'PAUSED' : 'LIVE'
+                );
             });
 
             document.getElementById('btn-reset').addEventListener('click', () => location.reload());
 
-            document.querySelectorAll('[data-tf]').forEach(btn => {
-                btn.addEventListener('click', (e) => {
+            // Botones de timeframe (5s, 1m, 5m, 15m, etc.)
+            document.querySelectorAll('[data-tf]').forEach(boton => {
+                boton.addEventListener('click', (e) => {
                     document.querySelectorAll('[data-tf]').forEach(b => b.classList.remove('active'));
                     e.target.classList.add('active');
-                    const sec = parseInt(e.target.dataset.tf);
-                    this.aggregator.changeInterval(sec, this.rawTicks);
-                    this.ps.resetZoom();
-                    this.candleEngine._panOffset = 0;
-                    this.candleEngine._panAccumPx = 0;
-                    this.candleEngine._panFractional = 0;
-                    // Auto-adjust visible count for timeframe
-                    if (sec >= 900) this.candleEngine.visibleCount = 40;  // 15m+
-                    else if (sec >= 300) this.candleEngine.visibleCount = 60;  // 5m
-                    else this.candleEngine.visibleCount = 80;  // 1m, 5s
+                    const segundos = parseInt(e.target.dataset.tf); // intervalo en segundos
+                    this.agrupadorVelas.changeInterval(segundos, this.ticksCrudos);
+                    this.estadoPrecio.resetZoom();
+                    this.motorVelas._panOffset = 0;
+                    this.motorVelas._panAccumPx = 0;
+                    this.motorVelas._panFractional = 0;
+                    // Ajustar cantidad de velas visibles según el timeframe
+                    if (segundos >= 900) this.motorVelas.visibleCount = 40;  // 15m+
+                    else if (segundos >= 300) this.motorVelas.visibleCount = 60;  // 5m
+                    else this.motorVelas.visibleCount = 80;  // 1m, 5s
                 });
             });
 
-            // Symbol change
+            // Cambio de símbolo/instrumento
             document.getElementById('symbol-select').addEventListener('change', (e) => {
-                const sym = e.target.value;
-                this.currentSymbol = sym;
-                const msg = JSON.stringify({ action: 'subscribe', symbol: sym });
-                if (this.wsChart?.readyState === WebSocket.OPEN) this.wsChart.send(msg);
-                if (this.wsOB?.readyState === WebSocket.OPEN) this.wsOB.send(msg);
-                this.ps.resetZoom();
-                console.log('%c[SYMBOL] 🔄 Cambio a ' + sym, 'color:#a78bfa;font-weight:bold');
+                const simboloAnterior = this.simboloActual;
+                const simbolo = e.target.value;
+                this.simboloActual = simbolo;
+                const mensaje = JSON.stringify({ action: 'subscribe', symbol: simbolo });
+                if (this.wsGrafico?.readyState === WebSocket.OPEN) this.wsGrafico.send(mensaje);
+                if (this.wsLibroOrdenes?.readyState === WebSocket.OPEN) this.wsLibroOrdenes.send(mensaje);
+                this.estadoPrecio.resetZoom();
+
+                // ── ULTRA-VALIDACIÓN: Limpiar OB del activo anterior ──
+                // Resetear datos del store para que no persistan precios del activo previo
+                this.motorLibroOrdenes.store.midPrice = 0;
+                this.motorLibroOrdenes.store.bestBid = 0;
+                this.motorLibroOrdenes.store.bestAsk = 0;
+                this.motorLibroOrdenes.store.spread = 0;
+                this.motorLibroOrdenes.store.bidMap.clear();
+                this.motorLibroOrdenes.store.askMap.clear();
+                this.motorLibroOrdenes.store.bidArray = [];
+                this.motorLibroOrdenes.store.askArray = [];
+                this.motorLibroOrdenes.store._dirty = true;
+                this.motorLibroOrdenes.store._version++;
+
+                // Limpiar DOM del OB para que no queden textos residuales
+                const r = this.motorLibroOrdenes._renderer;
+                if (r) {
+                    if (r.midPriceEl) r.midPriceEl.textContent = '$—';
+                    if (r.bestBidEl) r.bestBidEl.textContent = '$—';
+                    if (r.bestAskEl) r.bestAskEl.textContent = '$—';
+                    if (r.spreadEl) r.spreadEl.textContent = '$—';
+                    if (r.spacer) r.spacer.style.height = '0px';
+                    // Limpiar filas visibles del pool
+                    if (r._rows) r._rows.forEach(row => row.el.style.display = 'none');
+                }
+                // Limpiar spread del panel de métricas
+                document.getElementById('m-spread').textContent = '$—';
+
+                // Resetear bandera de primer mensaje para que loguee el próximo
+                this._primerMensajeLibro = false;
+                this.motorLibroOrdenes._loggedFirst = false;
+
+                console.log(`%c[SÍMBOLO] 🔄 ${simboloAnterior} → ${simbolo} | OB limpiado`, 'color:#a78bfa;font-weight:bold');
             });
         }
 
-        // ─── CHART WS (8765) ────────────────────
-        _connectChart() {
-            const t0 = performance.now();
-            this._setStatus('connecting', 'CONECTANDO...');
-            console.log('%c[CONNECTION] 🔌 Conectando a Chart WS: ' + WS_CHART, 'color:#f59e0b;font-weight:bold');
-            this.wsChart = new WebSocket(WS_CHART);
+        // ─── CONEXIÓN WS DEL GRÁFICO (8765) ────────────────────
+        _conectarGrafico() {
+            const tiempoInicio = performance.now();
+            this._establecerEstado('connecting', 'CONECTANDO...');
+            console.log('%c[CONEXIÓN] 🔌 Conectando a WS Gráfico: ' + WS_GRAFICO, 'color:#f59e0b;font-weight:bold');
+            this.wsGrafico = new WebSocket(WS_GRAFICO);
 
-            this.wsChart.onopen = () => {
-                const elapsed = (performance.now() - t0).toFixed(0);
-                this._setStatus('live', 'LIVE');
-                console.log(`%c[CONNECTION] ✅ Chart WS CONECTADO | Tiempo: ${elapsed}ms`, 'color:#22c55e;font-weight:bold;font-size:13px');
+            this.wsGrafico.onopen = () => {
+                const tiempoTranscurrido = (performance.now() - tiempoInicio).toFixed(0);
+                this._establecerEstado('live', 'LIVE');
+                console.log(`%c[CONEXIÓN] ✅ WS Gráfico CONECTADO | Tiempo: ${tiempoTranscurrido}ms`, 'color:#22c55e;font-weight:bold;font-size:13px');
             };
 
-            this.wsChart.onmessage = (e) => {
-                const msgT0 = performance.now();
-                this.totalMessages++;
-                let m;
-                try { m = JSON.parse(e.data); } catch { return; }
+            this.wsGrafico.onmessage = (e) => {
+                const tiempoMsg = performance.now();
+                this.totalMensajes++;
+                let mensaje;
+                try { mensaje = JSON.parse(e.data); } catch { return; }
 
-                if (m.type === 'symbols') this._onSymbols(m.symbols);
-                if (m.type === 'init') {
-                    this._onInit(m);
-                    const elapsed = (performance.now() - msgT0).toFixed(1);
-                    console.log(`%c[CONNECTION] 📊 Datos iniciales | ${elapsed}ms | ${(m.data || []).length} ticks`, 'color:#06b6d4;font-weight:bold');
+                if (mensaje.type === 'symbols') this._alRecibirSimbolos(mensaje.symbols);
+                if (mensaje.type === 'init') {
+                    this._alRecibirInicio(mensaje);
+                    const tiempoTranscurrido = (performance.now() - tiempoMsg).toFixed(1);
+                    console.log(`%c[CONEXIÓN] 📊 Datos iniciales | ${tiempoTranscurrido}ms | ${(mensaje.data || []).length} ticks`, 'color:#06b6d4;font-weight:bold');
                 }
-                if (m.type === 'tick') this._onTick(m);
-                if (m.type === 'session') this._onSession(m);
+                if (mensaje.type === 'tick') this._alRecibirTick(mensaje);
+                if (mensaje.type === 'session') this._alRecibirSesion(mensaje);
             };
 
-            this.wsChart.onclose = () => {
-                this._setStatus('disconnected', 'DESCONECTADO');
-                console.log('%c[CONNECTION] ❌ Chart WS desconectado — reconectando...', 'color:#ef4444;font-weight:bold');
-                setTimeout(() => this._connectChart(), RECONNECT_MS);
+            this.wsGrafico.onclose = () => {
+                this._establecerEstado('disconnected', 'DESCONECTADO');
+                console.log('%c[CONEXIÓN] ❌ WS Gráfico desconectado — reconectando...', 'color:#ef4444;font-weight:bold');
+                setTimeout(() => this._conectarGrafico(), MS_RECONEXION);
             };
-            this.wsChart.onerror = () => this.wsChart.close();
+            this.wsGrafico.onerror = () => this.wsGrafico.close();
         }
 
-        // ─── ORDERBOOK WS (8766) ────────────────
-        _connectOB() {
-            const t0 = performance.now();
-            this.obEngine.setStatus('Conectando...', false);
-            console.log('%c[CONNECTION] 🔌 Conectando a OrderBook WS: ' + WS_ORDERBOOK, 'color:#f59e0b');
-            this.wsOB = new WebSocket(WS_ORDERBOOK);
+        // ─── CONEXIÓN WS DEL LIBRO DE ÓRDENES (8766) ────────────────
+        _conectarLibroOrdenes() {
+            const tiempoInicio = performance.now();
+            this.motorLibroOrdenes.setStatus('Conectando...', false);
+            console.log('%c[CONEXIÓN] 🔌 Conectando a WS Libro de Órdenes: ' + WS_LIBRO_ORDENES, 'color:#f59e0b');
+            this.wsLibroOrdenes = new WebSocket(WS_LIBRO_ORDENES);
 
-            this.wsOB.onopen = () => {
-                const elapsed = (performance.now() - t0).toFixed(0);
-                this.obEngine.setStatus('LIVE', true);
-                console.log(`%c[CONNECTION] ✅ OrderBook WS CONECTADO | Tiempo: ${elapsed}ms`, 'color:#22c55e;font-weight:bold');
+            this.wsLibroOrdenes.onopen = () => {
+                const tiempoTranscurrido = (performance.now() - tiempoInicio).toFixed(0);
+                this.motorLibroOrdenes.setStatus('LIVE', true);
+                console.log(`%c[CONEXIÓN] ✅ WS Libro de Órdenes CONECTADO | Tiempo: ${tiempoTranscurrido}ms`, 'color:#22c55e;font-weight:bold');
             };
 
-            this.wsOB.onmessage = (e) => {
-                let m; try { m = JSON.parse(e.data); } catch { return; }
-                if (!this._obFirstMsg) {
-                    this._obFirstMsg = true;
-                    console.log('%c[ORDERBOOK] 📨 Primer mensaje WS recibido:', 'color:#06b6d4;font-weight:bold', {
-                        type: m.type, symbol: m.symbol,
-                        bids: m.bids?.length, asks: m.asks?.length,
-                        mid_price: m.mid_price, best_bid: m.best_bid, best_ask: m.best_ask
+            this.wsLibroOrdenes.onmessage = (e) => {
+                let mensaje;
+                try { mensaje = JSON.parse(e.data); } catch { return; }
+                if (!this._primerMensajeLibro) {
+                    this._primerMensajeLibro = true; // bandera: ya se recibió el primer mensaje del libro
+                    console.log('%c[LIBRO_ÓRDENES] 📨 Primer mensaje WS recibido:', 'color:#06b6d4;font-weight:bold', {
+                        type: mensaje.type, symbol: mensaje.symbol,
+                        bids: mensaje.bids?.length, asks: mensaje.asks?.length,
+                        mid_price: mensaje.mid_price, best_bid: mensaje.best_bid, best_ask: mensaje.best_ask
                     });
                 }
-                if (m.type === 'book' && (!this.currentSymbol || m.symbol === this.currentSymbol)) {
-                    this.obEngine.feedBook(m);
-                    if (m.spread !== undefined) {
-                        document.getElementById('m-spread').textContent = '$' + m.spread.toFixed(4);
+                // ── ULTRA-VALIDACIÓN: Solo procesar datos del símbolo activo ──
+                if (mensaje.type === 'book') {
+                    // Validar que el símbolo del mensaje coincida EXACTAMENTE con el activo seleccionado
+                    if (this.simboloActual && mensaje.symbol !== this.simboloActual) {
+                        // Ignorar snapshots de otros activos (ej: BTC llega pero estás en TSLA)
+                        return;
+                    }
+                    // Validar que el snapshot tiene datos válidos (mid_price > 0)
+                    if (!mensaje.mid_price || mensaje.mid_price <= 0) {
+                        // Snapshot vacío (mercado cerrado sin datos sintéticos) → no alimentar al motor
+                        return;
+                    }
+                    this.motorLibroOrdenes.feedBook(mensaje);
+                    if (mensaje.spread !== undefined) {
+                        document.getElementById('m-spread').textContent = '$' + mensaje.spread.toFixed(4);
                     }
                 }
             };
 
-            this.wsOB.onclose = () => {
-                this.obEngine.setStatus('Desconectado', false);
-                console.log('%c[CONNECTION] ❌ OrderBook WS desconectado — reconectando...', 'color:#ef4444');
-                setTimeout(() => this._connectOB(), RECONNECT_MS);
+            this.wsLibroOrdenes.onclose = () => {
+                this.motorLibroOrdenes.setStatus('Desconectado', false);
+                console.log('%c[CONEXIÓN] ❌ WS Libro de Órdenes desconectado — reconectando...', 'color:#ef4444');
+                setTimeout(() => this._conectarLibroOrdenes(), MS_RECONEXION);
             };
-            this.wsOB.onerror = () => this.wsOB.close();
+            this.wsLibroOrdenes.onerror = () => this.wsLibroOrdenes.close();
         }
 
-        _setStatus(state, text) {
-            document.getElementById('status-dot').className = 'status-dot ' + state;
-            document.getElementById('status-text').textContent = text;
+        // Actualizar indicador visual de estado de conexión
+        _establecerEstado(estado, texto) {
+            document.getElementById('status-dot').className = 'status-dot ' + estado;
+            document.getElementById('status-text').textContent = texto;
         }
 
-        _onSymbols(symbols) {
-            const sel = document.getElementById('symbol-select');
-            sel.innerHTML = '';
-            symbols.forEach(s => {
-                const o = document.createElement('option');
-                o.value = s; o.textContent = s;
-                sel.appendChild(o);
+        // Cuando el servidor envía la lista de símbolos disponibles
+        _alRecibirSimbolos(simbolos) {
+            const selector = document.getElementById('symbol-select');
+            selector.innerHTML = '';
+            simbolos.forEach(s => {
+                const opcion = document.createElement('option');
+                opcion.value = s;
+                opcion.textContent = s;
+                selector.appendChild(opcion);
             });
-            if (symbols.length) { this.currentSymbol = symbols[0]; sel.value = symbols[0]; }
-            console.log(`%c[CONNECTION] 📋 Símbolos: ${symbols.join(', ')}`, 'color:#94a3b8');
+            if (simbolos.length) {
+                this.simboloActual = simbolos[0];
+                selector.value = simbolos[0];
+            }
+            console.log(`%c[CONEXIÓN] 📋 Símbolos: ${simbolos.join(', ')}`, 'color:#94a3b8');
         }
 
-        _onInit(msg) {
-            this.currentSymbol = msg.symbol;
-            this.rawTicks = msg.data || [];
-            this.sessionHigh = -Infinity;
-            this.sessionLow = Infinity;
-            this.totalVolume = 0;
+        // Cuando el servidor envía los datos iniciales (histórico de ticks)
+        _alRecibirInicio(mensaje) {
+            this.simboloActual = mensaje.symbol;
+            this.ticksCrudos = mensaje.data || [];    // ticks crudos históricos recibidos del servidor
+            this.maximoSesion = -Infinity;
+            this.minimoSesion = Infinity;
+            this.volumenTotal = 0;
             this.totalTicks = 0;
-            this.firstPrice = 0;
-            this.aggregator.fromHistory(this.rawTicks);
-            this.ps.resetZoom();
+            this.primerPrecio = 0;
+            this.agrupadorVelas.fromHistory(this.ticksCrudos); // reconstruir velas desde los ticks
+            this.estadoPrecio.resetZoom();
 
-            if (this.rawTicks.length) {
-                this.firstPrice = this.rawTicks[0].value;
-                this.rawTicks.forEach(t => {
-                    if (t.value > this.sessionHigh) this.sessionHigh = t.value;
-                    if (t.value < this.sessionLow) this.sessionLow = t.value;
-                    this.currentPrice = t.value;
+            if (this.ticksCrudos.length) {
+                this.primerPrecio = this.ticksCrudos[0].value;
+                this.ticksCrudos.forEach(tick => {
+                    if (tick.value > this.maximoSesion) this.maximoSesion = tick.value;
+                    if (tick.value < this.minimoSesion) this.minimoSesion = tick.value;
+                    this.precioActual = tick.value;
                     this.totalTicks++;
                 });
-                this.totalVolume = this.rawTicks.length;
+                this.volumenTotal = this.ticksCrudos.length;
             }
 
-            console.log(`%c[DATA] 📈 ${msg.symbol}: ${this.rawTicks.length} puntos | $${this.sessionLow?.toFixed(2) || '—'} – $${this.sessionHigh > -Infinity ? this.sessionHigh.toFixed(2) : '—'}`, 'color:#a78bfa;font-weight:bold');
+            console.log(`%c[DATOS] 📈 ${mensaje.symbol}: ${this.ticksCrudos.length} puntos | $${this.minimoSesion?.toFixed(2) || '—'} – $${this.maximoSesion > -Infinity ? this.maximoSesion.toFixed(2) : '—'}`, 'color:#a78bfa;font-weight:bold');
         }
 
-        _onSession(msg) {
-            const badge = document.getElementById('session-badge');
-            const SESSION_SHORT = {
+        // Cuando el servidor envía información de la sesión de mercado
+        _alRecibirSesion(mensaje) {
+            const etiqueta = document.getElementById('session-badge');
+            const SESION_CORTA = {
                 'PRE_MARKET': 'PRE-MARKET',
                 'REGULAR': 'REGULAR',
                 'AFTER_HOURS': 'AFTER HOURS',
                 'CLOSED': 'CERRADO'
             };
-            badge.textContent = SESSION_SHORT[msg.session] || msg.session;
-            badge.className = 'session-badge ' + msg.session;
-            console.log(`%c[SESIÓN] ${msg.label} | ${msg.time_et}`, 'color:#f59e0b;font-weight:bold');
+            etiqueta.textContent = SESION_CORTA[mensaje.session] || mensaje.session;
+            etiqueta.className = 'session-badge ' + mensaje.session;
+            console.log(`%c[SESIÓN] ${mensaje.label} | ${mensaje.time_et}`, 'color:#f59e0b;font-weight:bold');
         }
 
-        _onTick(msg) {
-            if (this.isPaused) return;
-            const { value: p, time: t } = msg;
-            this.rawTicks.push({ time: t, value: p });
-            if (this.rawTicks.length > 50000) this.rawTicks = this.rawTicks.slice(-30000);
+        // Cuando llega un nuevo tick de precio en tiempo real
+        _alRecibirTick(mensaje) {
+            if (this.estaPausado) return; // ignorar ticks si está pausado
+            const { value: precio, time: tiempo } = mensaje;
+            this.ticksCrudos.push({ time: tiempo, value: precio }); // guardar tick crudo
+            // Limitar memoria: si hay más de 50,000 ticks, quedarse con los últimos 30,000
+            if (this.ticksCrudos.length > 50000) this.ticksCrudos = this.ticksCrudos.slice(-30000);
 
-            this.currentPrice = p;
-            if (!this.firstPrice) this.firstPrice = p;
-            if (p > this.sessionHigh) this.sessionHigh = p;
-            if (p < this.sessionLow) this.sessionLow = p;
-            this.totalVolume++;
+            this.precioActual = precio;
+            if (!this.primerPrecio) this.primerPrecio = precio;
+            if (precio > this.maximoSesion) this.maximoSesion = precio;
+            if (precio < this.minimoSesion) this.minimoSesion = precio;
+            this.volumenTotal++;
             this.totalTicks++;
-            this.tickCountWindow++;
+            this.contadorTicksVentana++;
 
-            this.aggregator.tick(t, p);
-            document.getElementById('m-last').textContent = '$' + p.toFixed(2);
+            this.agrupadorVelas.tick(tiempo, precio); // alimentar el agrupador con el nuevo tick
+            document.getElementById('m-last').textContent = '$' + precio.toFixed(2);
             document.getElementById('m-ticks').textContent = this.totalTicks.toLocaleString();
-            document.getElementById('m-candles').textContent = this.aggregator.all().length;
+            document.getElementById('m-candles').textContent = this.agrupadorVelas.all().length;
         }
 
-        _updateTooltip() {
-            const all = this.aggregator.all();
-            const vis = this.candleEngine.visible(all);
-            const space = this.chartW / this.candleEngine.visibleCount;
-            const idx = Math.floor(this.crosshair.mx / space);
-            if (idx >= 0 && idx < vis.length) {
-                const c = vis[idx];
-                const info = document.getElementById('crosshair-info');
-                info.style.display = 'block';
-                const up = c.close >= c.open;
-                const cls = up ? 'positive' : 'negative';
-                document.getElementById('ci-open').textContent = '$' + c.open.toFixed(2);
-                document.getElementById('ci-high').textContent = '$' + c.high.toFixed(2);
-                document.getElementById('ci-low').textContent = '$' + c.low.toFixed(2);
-                document.getElementById('ci-close').textContent = '$' + c.close.toFixed(2);
-                document.getElementById('ci-vol').textContent = c.volume.toLocaleString();
+        // Actualizar tooltip con datos OHLC de la vela bajo el cursor
+        _actualizarTooltip() {
+            const todasLasVelas = this.agrupadorVelas.all();
+            const velasVisibles = this.motorVelas.visible(todasLasVelas);
+            const espacioEntreVelas = this.anchoGrafico / this.motorVelas.visibleCount;
+            const indiceVela = Math.floor(this.cruceta.mx / espacioEntreVelas); // a qué vela apunta el ratón
+            if (indiceVela >= 0 && indiceVela < velasVisibles.length) {
+                const vela = velasVisibles[indiceVela];
+                const panelInfo = document.getElementById('crosshair-info');
+                panelInfo.style.display = 'block';
+                const esAlcista = vela.close >= vela.open; // true si la vela subió
+                const claseColor = esAlcista ? 'positive' : 'negative';
+                document.getElementById('ci-open').textContent = '$' + vela.open.toFixed(2);
+                document.getElementById('ci-high').textContent = '$' + vela.high.toFixed(2);
+                document.getElementById('ci-low').textContent = '$' + vela.low.toFixed(2);
+                document.getElementById('ci-close').textContent = '$' + vela.close.toFixed(2);
+                document.getElementById('ci-vol').textContent = vela.volume.toLocaleString();
                 ['ci-open', 'ci-high', 'ci-low', 'ci-close'].forEach(id => {
-                    document.getElementById(id).className = 'val ' + cls;
+                    document.getElementById(id).className = 'val ' + claseColor;
                 });
             }
         }
 
-        // ─── RENDER LOOP ────────────────────────
-        _startLoop() {
-            const loop = () => {
-                this.frameCount++;
-                const now = Date.now();
-                if (now - this.lastFpsTime >= 1000) {
-                    this.fps = this.frameCount; this.frameCount = 0; this.lastFpsTime = now;
-                    document.getElementById('stat-fps').textContent = this.fps;
+        // ─── BUCLE DE RENDERIZADO (se ejecuta ~60 veces por segundo) ────────────────────────
+        _iniciarBucleDibujo() {
+            const bucle = () => {
+                this.contadorCuadros++;
+                const ahora = Date.now();
+
+                // Calcular FPS (cuadros por segundo)
+                if (ahora - this.ultimoTiempoFps >= 1000) {
+                    this.cuadrosPorSegundo = this.contadorCuadros;
+                    this.contadorCuadros = 0;
+                    this.ultimoTiempoFps = ahora;
+                    document.getElementById('stat-fps').textContent = this.cuadrosPorSegundo;
                 }
-                if (now - this.lastTpsTime >= 1000) {
-                    this.ticksPerSecond = this.tickCountWindow; this.tickCountWindow = 0; this.lastTpsTime = now;
-                    document.getElementById('stat-tps').textContent = this.ticksPerSecond;
+                // Calcular TPS (ticks por segundo)
+                if (ahora - this.ultimoTiempoTps >= 1000) {
+                    this.ticksPorSegundo = this.contadorTicksVentana;
+                    this.contadorTicksVentana = 0;
+                    this.ultimoTiempoTps = ahora;
+                    document.getElementById('stat-tps').textContent = this.ticksPorSegundo;
                 }
 
-                const all = this.aggregator.all();
+                const todasLasVelas = this.agrupadorVelas.all();
 
-                // Auto range from visible candles
-                this.candleEngine.computeAutoRange(all);
+                // Auto-rango: calcular rango de precios desde las velas visibles
+                this.motorVelas.computeAutoRange(todasLasVelas);
 
-                // ── AUTO-RECOVERY: NaN=instant, off-screen=delayed 2s ──
-                if (!this.ps.autoRange) {
-                    if (!this.ps.hasValidRange()) {
-                        console.warn('[SAFETY] Invalid price range — auto-recovering');
-                        this.ps.resetZoom();
-                        this.candleEngine.computeAutoRange(all);
-                        this.ps._offScreenSince = 0;
+                // ── AUTO-RECUPERACIÓN: NaN=instantáneo, fuera de pantalla=retardado 2s ──
+                if (!this.estadoPrecio.autoRange) {
+                    if (!this.estadoPrecio.hasValidRange()) {
+                        // Rango de precios inválido (NaN) → recuperar inmediatamente
+                        console.warn('[SEGURIDAD] Rango de precios inválido — auto-recuperando');
+                        this.estadoPrecio.resetZoom();
+                        this.motorVelas.computeAutoRange(todasLasVelas);
+                        this.estadoPrecio._offScreenSince = 0;
                     } else {
-                        const vis = this.candleEngine.visible(all);
-                        if (vis.length > 0) {
-                            let lo = Infinity, hi = -Infinity;
-                            vis.forEach(c => { if (c.low < lo) lo = c.low; if (c.high > hi) hi = c.high; });
-                            if (hi < this.ps.priceMin || lo > this.ps.priceMax) {
-                                if (!this.ps._offScreenSince) {
-                                    this.ps._offScreenSince = now;
-                                } else if (now - this.ps._offScreenSince > 1000) {
-                                    console.warn('[SAFETY] Candles off-screen for 2s — auto-recovering');
-                                    this.ps.resetZoom();
-                                    this.candleEngine.computeAutoRange(all);
-                                    this.ps._offScreenSince = 0;
+                        // Verificar si las velas están fuera de la vista
+                        const velasVisibles = this.motorVelas.visible(todasLasVelas);
+                        if (velasVisibles.length > 0) {
+                            let minimoVisible = Infinity, maximoVisible = -Infinity;
+                            velasVisibles.forEach(vela => {
+                                if (vela.low < minimoVisible) minimoVisible = vela.low;
+                                if (vela.high > maximoVisible) maximoVisible = vela.high;
+                            });
+                            if (maximoVisible < this.estadoPrecio.priceMin || minimoVisible > this.estadoPrecio.priceMax) {
+                                // Velas completamente fuera de pantalla
+                                if (!this.estadoPrecio._offScreenSince) {
+                                    this.estadoPrecio._offScreenSince = ahora; // marcar inicio
+                                } else if (ahora - this.estadoPrecio._offScreenSince > 1000) {
+                                    // Llevan más de 1s fuera → recuperar
+                                    console.warn('[SEGURIDAD] Velas fuera de pantalla por 2s — auto-recuperando');
+                                    this.estadoPrecio.resetZoom();
+                                    this.motorVelas.computeAutoRange(todasLasVelas);
+                                    this.estadoPrecio._offScreenSince = 0;
                                 }
                             } else {
-                                this.ps._offScreenSince = 0;
+                                this.estadoPrecio._offScreenSince = 0; // velas visibles, todo bien
                             }
                         }
                     }
                 } else {
-                    this.ps._offScreenSince = 0;
+                    this.estadoPrecio._offScreenSince = 0;
                 }
 
-                // Render
-                this.candleEngine.render(this.chartW, this.chartH, all);
-                this.crosshair.render(this.chartW, this.chartH);
-                this.priceAxisRenderer.render(this.paW, this.paH, this.currentPrice, this.firstPrice);
-                this.obEngine.syncScale(this.ps.priceMin, this.ps.priceMax);
+                // Renderizar todos los componentes visuales
+                this.motorVelas.render(this.anchoGrafico, this.altoGrafico, todasLasVelas);
+                this.cruceta.render(this.anchoGrafico, this.altoGrafico);
+                this.renderizadorEje.render(this.anchoEje, this.altoEje, this.precioActual, this.primerPrecio);
+                this.motorLibroOrdenes.syncScale(this.estadoPrecio.priceMin, this.estadoPrecio.priceMax);
 
-                if (now - this._lastTimeAxisUpdate > 500) {
-                    this._lastTimeAxisUpdate = now;
-                    this._updateTimeAxis(all);
+                // Actualizar eje de tiempo (máximo cada 500ms)
+                if (ahora - this._ultimaActualizacionEjeTiempo > 500) {
+                    this._ultimaActualizacionEjeTiempo = ahora;
+                    this._actualizarEjeTiempo(todasLasVelas);
                 }
 
-                this._updateUI();
-                requestAnimationFrame(loop);
+                this._actualizarInterfaz();
+                requestAnimationFrame(bucle);
             };
-            requestAnimationFrame(loop);
+            requestAnimationFrame(bucle);
         }
 
-        _updateUI() {
-            const p = this.currentPrice;
-            if (!p) return;
-            const chg = p - this.firstPrice;
-            const pct = this.firstPrice ? (chg / this.firstPrice * 100) : 0;
-            const up = chg >= 0;
+        // Actualizar indicadores de la interfaz (precio, cambio %, volumen, etc.)
+        _actualizarInterfaz() {
+            const precio = this.precioActual;
+            if (!precio) return;
+            const cambio = precio - this.primerPrecio;                                    // cambio absoluto en dólares
+            const porcentaje = this.primerPrecio ? (cambio / this.primerPrecio * 100) : 0;    // cambio porcentual
+            const esPositivo = cambio >= 0;
 
-            document.getElementById('live-price').textContent = '$' + p.toFixed(2);
-            document.getElementById('live-price').className = 'ticker-price ' + (up ? 'positive' : 'negative');
-            document.getElementById('live-change').textContent = `${up ? '+' : ''}${chg.toFixed(2)} (${pct.toFixed(2)}%)`;
-            document.getElementById('live-change').className = 'ticker-change ' + (up ? 'bg-positive' : 'bg-negative');
-            document.getElementById('stat-vol').textContent = this.totalVolume > 1000 ? (this.totalVolume / 1000).toFixed(0) + 'K' : this.totalVolume;
-            document.getElementById('stat-high').textContent = this.sessionHigh > -Infinity ? '$' + this.sessionHigh.toFixed(2) : '$—';
-            document.getElementById('stat-low').textContent = this.sessionLow < Infinity ? '$' + this.sessionLow.toFixed(2) : '$—';
+            document.getElementById('live-price').textContent = '$' + precio.toFixed(2);
+            document.getElementById('live-price').className = 'ticker-price ' + (esPositivo ? 'positive' : 'negative');
+            document.getElementById('live-change').textContent = `${esPositivo ? '+' : ''}${cambio.toFixed(2)} (${porcentaje.toFixed(2)}%)`;
+            document.getElementById('live-change').className = 'ticker-change ' + (esPositivo ? 'bg-positive' : 'bg-negative');
+            document.getElementById('stat-vol').textContent = this.volumenTotal > 1000 ? (this.volumenTotal / 1000).toFixed(0) + 'K' : this.volumenTotal;
+            document.getElementById('stat-high').textContent = this.maximoSesion > -Infinity ? '$' + this.maximoSesion.toFixed(2) : '$—';
+            document.getElementById('stat-low').textContent = this.minimoSesion < Infinity ? '$' + this.minimoSesion.toFixed(2) : '$—';
         }
 
-        _updateTimeAxis(all) {
-            const el = document.getElementById('time-axis');
-            el.innerHTML = '';
-            const vis = this.candleEngine.visible(all);
-            if (!vis.length) return;
-            const space = this.chartW / this.candleEngine.visibleCount;
-            const step = Math.max(1, Math.floor(this.candleEngine.visibleCount / 8));
-            vis.forEach((c, i) => {
-                if (i % step === 0) {
-                    const x = i * space + space / 2;
-                    const d = new Date(c.time * 1000);
-                    const lbl = document.createElement('div');
-                    lbl.className = 'time-label';
-                    lbl.style.left = x + 'px';
-                    lbl.textContent = d.getHours().toString().padStart(2, '0') + ':' +
-                        d.getMinutes().toString().padStart(2, '0') + ':' +
-                        d.getSeconds().toString().padStart(2, '0');
-                    el.appendChild(lbl);
+        // Actualizar las etiquetas del eje horizontal de tiempo
+        _actualizarEjeTiempo(todasLasVelas) {
+            const contenedorTiempo = document.getElementById('time-axis');
+            contenedorTiempo.innerHTML = '';
+            const velasVisibles = this.motorVelas.visible(todasLasVelas);
+            if (!velasVisibles.length) return;
+            const espacioEntreVelas = this.anchoGrafico / this.motorVelas.visibleCount;
+            const paso = Math.max(1, Math.floor(this.motorVelas.visibleCount / 8)); // mostrar ~8 etiquetas
+            velasVisibles.forEach((vela, indice) => {
+                if (indice % paso === 0) {
+                    const posicionX = indice * espacioEntreVelas + espacioEntreVelas / 2;
+                    const fecha = new Date(vela.time * 1000);
+                    const etiqueta = document.createElement('div');
+                    etiqueta.className = 'time-label';
+                    etiqueta.style.left = posicionX + 'px';
+                    etiqueta.textContent =
+                        fecha.getHours().toString().padStart(2, '0') + ':' +
+                        fecha.getMinutes().toString().padStart(2, '0') + ':' +
+                        fecha.getSeconds().toString().padStart(2, '0');
+                    contenedorTiempo.appendChild(etiqueta);
                 }
             });
         }
@@ -526,7 +608,7 @@
         console.log('%c╔═══════════════════════════════════════════════════════╗', 'color:#06b6d4');
         console.log('%c║ MarketDepth Core — CHART + DOM DEPTH                 ║', 'color:#06b6d4;font-weight:bold;font-size:13px');
         console.log('%c╚═══════════════════════════════════════════════════════╝', 'color:#06b6d4');
-        console.log('%c[CONNECTION] ⏱ Iniciando conexiones WebSocket...', 'color:#f59e0b');
+        console.log('%c[CONEXIÓN] ⏱ Iniciando conexiones WebSocket...', 'color:#f59e0b');
         window.app = new MarketDepthCore();
     });
 })();
