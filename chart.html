@@ -536,14 +536,14 @@
         <div class="metric"><span class="label">Velas:</span> <span class="value" id="m-candles">0</span></div>
     </div>
 
-    <!-- Módulos JS — Orden de carga por dependencias -->
-    <script src="EstadoPrecio.js"></script> <!-- 1. Estado compartido del eje Y (precio) -->
-    <script src="AgrupadorVelas.js"></script> <!-- 2. Agrupa ticks crudos en velas OHLC -->
-    <script src="MotorVelas.js"></script> <!-- 3. Dibuja las velas en el canvas -->
-    <script src="CursorGrafica.js"></script> <!-- 4. Líneas del cursor (crosshair) -->
-    <script src="EjePrecio.js"></script> <!-- 5. Renderiza el eje de precio derecho -->
-    <script src="MotorOrderBook.js"></script> <!-- 6. Panel del libro de órdenes (DOM depth) -->
-    <script src="ControladorPrincipal.js"></script> <!-- 7. Controlador: conecta todo + WebSockets -->
+    <!-- Módulos JS — Orden de carga por dependencias (carpeta modules/) -->
+    <script src="modules/EstadoPrecio.js"></script> <!-- 1. Estado compartido del eje Y (precio) -->
+    <script src="modules/AgrupadorVelas.js"></script> <!-- 2. Agrupa ticks crudos en velas OHLC -->
+    <script src="modules/MotorVelas.js"></script> <!-- 3. Dibuja las velas en el canvas -->
+    <script src="modules/CursorGrafica.js"></script> <!-- 4. Líneas del cursor (crosshair) -->
+    <script src="modules/EjePrecio.js"></script> <!-- 5. Renderiza el eje de precio derecho -->
+    <script src="modules/MotorOrderBook.js"></script> <!-- 6. Panel del libro de órdenes (DOM depth) -->
+    <script src="modules/ControladorPrincipal.js"></script> <!-- 7. Controlador: conecta todo + WebSockets -->
 
 </body>
 
