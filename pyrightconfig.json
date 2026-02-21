@@ -1,0 +1,17 @@
+{
+    "include": [
+        "."
+    ],
+    "pythonVersion": "3.14",
+    "pythonPlatform": "Windows",
+    "typeCheckingMode": "off",
+    "reportMissingImports": false,
+    "reportMissingModuleSource": false,
+    "reportGeneralTypeIssues": false,
+    "reportOptionalMemberAccess": false,
+    "reportOptionalSubscript": false,
+    "reportArgumentType": false,
+    "extraPaths": [
+        "."
+    ]
+}
