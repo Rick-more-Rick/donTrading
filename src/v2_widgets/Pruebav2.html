@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MarketDepth v2 — Arquitectura de Widgets Modular</title>
+
+    <!-- Fuentes -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Outfit:wght@300;400;600;700&display=swap');
+    </style>
+
+    <!-- Estilos v2 -->
+    <link rel="stylesheet" href="/donTrading/src/v2_widgets/estilos_v2.css">
+</head>
+
+<body class="v2-body">
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         LAYOUT PRINCIPAL — CSS Grid
+         ═══════════════════════════════════════════════════════════════════ -->
+    <div class="v2-app">
+
+        <!-- ── CABECERA: Logo + Selector de Activos ── -->
+        <div class="v2-panel-cabecera">
+            <div class="v2-logo">MarketDepth<span>v2</span></div>
+            <div class="v2-separador-vertical"></div>
+            <!-- Widget: Selector de Activos se monta aquí -->
+            <div id="mount-selector-activos"></div>
+        </div>
+
+        <!-- ── BARRA DE TIMEFRAME ── -->
+        <div class="v2-panel-tiempo">
+            <!-- Widget: Selector de Tiempo se monta aquí -->
+            <div id="mount-selector-tiempo"></div>
+        </div>
+
+        <!-- ── ÁREA DE GRÁFICA — Placeholder para WidgetGrafica ── -->
+        <div class="v2-panel-grafica">
+            <div class="v2-grafica-placeholder" id="mount-grafica">
+                <div class="icono">📈</div>
+                <div class="texto">
+                    Área reservada para <strong>WidgetGrafica</strong><br>
+                    <small>Para conectarlo:
+                        <code>selectorActivos.vincularGrafica(instanciaGrafica)</code></small><br><br>
+                    <span id="grafica-info-activo"
+                        style="color: #3b82f6; font-size: 14px; font-weight: 600;">AAPL</span>
+                    <span id="grafica-info-tf" style="color: #94a3b8; font-size: 11px;"> · 1m</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── PANEL ORDER BOOK (derecha) ── -->
+        <div class="v2-panel-orderbook">
+            <!-- Widget: Libro de Órdenes se monta aquí -->
+            <div id="mount-orderbook"></div>
+        </div>
+
+        <!-- ── BARRA DE MÉTRICAS (pie) ── -->
+        <div class="v2-panel-metricas">
+            <div class="v2-metrica">
+                <span class="v2-metrica-label">Símbolo:</span>
+                <span class="v2-metrica-valor" id="metrica-simbolo">—</span>
+            </div>
+            <div class="v2-metrica">
+                <span class="v2-metrica-label">Timeframe:</span>
+                <span class="v2-metrica-valor" id="metrica-timeframe">1m</span>
+            </div>
+            <div class="v2-metrica">
+                <span class="v2-metrica-label">Ticks:</span>
+                <span class="v2-metrica-valor" id="metrica-ticks">0</span>
+            </div>
+            <div class="v2-metrica">
+                <span class="v2-metrica-label">Spread:</span>
+                <span class="v2-metrica-valor" id="metrica-spread">—</span>
+            </div>
+            <div class="v2-estado-conexion">
+                <div class="v2-estado-punto conectando" id="estado-punto-chart"></div>
+                <span class="v2-estado-texto" id="estado-texto-chart">Chart: Conectando...</span>
+                <div class="v2-estado-punto conectando" id="estado-punto-book" style="margin-left: 12px;"></div>
+                <span class="v2-estado-texto" id="estado-texto-book">OB: Conectando...</span>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         MÓDULOS JS v2 — Orden de carga por dependencias
+         ═══════════════════════════════════════════════════════════════════ -->
+
+    <!-- 1. Base: Sistema de eventos + Clase base -->
+    <script src="/donTrading/src/v2_widgets/ClaseBaseWidget.js"></script>
+
+    <!-- 2. Configuración: Catálogo de mercados + Factory -->
+    <script src="/donTrading/src/v2_widgets/FabricaWidgets.js"></script>
+
+    <!-- 3. Widgets concretos -->
+    <script src="/donTrading/src/v2_widgets/WidgetSelectorActivos.js"></script>
+    <script src="/donTrading/src/v2_widgets/WidgetSelectorTiempo.js"></script>
+    <script src="/donTrading/src/v2_widgets/WidgetLibroOrdenes.js"></script>
+
+    <!-- 4. Gestor central (mediador de WebSockets) -->
+    <script src="/donTrading/src/v2_widgets/GestorWidgets.js"></script>
+
+    <!-- 5. Script de inicialización -->
+    <script>
+        // ══════════════════════════════════════════════════════════════════════
+        //  INICIALIZACIÓN DE LA APLICACIÓN v2
+        // ══════════════════════════════════════════════════════════════════════
+        (function iniciarAppV2() {
+            'use strict';
+
+            console.log('╔══════════════════════════════════════════════════════╗');
+            console.log('║  MarketDepth v2 — Arquitectura de Widgets Modular   ║');
+            console.log('╚══════════════════════════════════════════════════════╝');
+
+            // ── 1. Instanciar widgets en sus contenedores ──
+
+            const selectorActivos = FabricaWidgets.crear(
+                'selector_activos',
+                document.getElementById('mount-selector-activos'),
+                { simboloInicial: 'AAPL' }
+            );
+
+            const selectorTiempo = FabricaWidgets.crear(
+                'selector_tiempo',
+                document.getElementById('mount-selector-tiempo'),
+                { timeframeInicial: 60 }
+            );
+
+            const libroOrdenes = FabricaWidgets.crear(
+                'libro_ordenes',
+                document.getElementById('mount-orderbook'),
+                {
+                    simbolo: 'AAPL',
+                    paso_precio: 0.01,
+                    precision: 2,
+                    alturaFila: 18,
+                }
+            );
+
+            // ── WidgetGrafica (pendiente de implementación) ──────────────────
+            // Cuando se cree WidgetGrafica.js, descomenta estas líneas:
+            //
+            // FabricaWidgets.registrar('grafica', WidgetGrafica);
+            // const grafica = FabricaWidgets.crear(
+            //     'grafica',
+            //     document.getElementById('mount-grafica'),
+            //     { simbolo: 'AAPL', timeframe: 60 }
+            // );
+            // selectorActivos.vincularGrafica(grafica);
+            // ────────────────────────────────────────────────────────────────
+
+            // ── 2. Iniciar el Gestor Central (conecta WebSockets) ──
+
+            const gestor = new GestorWidgets({
+                host: 'localhost',
+                puertoChart: 8765,
+                puertoBook: 8766,
+            });
+            gestor.iniciar();
+
+            // ── 3. Escuchar eventos para actualizar la barra de métricas ──
+
+            // Actualizar símbolo activo
+            busEventos.suscribir(EVENTOS.CAMBIO_ACTIVO, (datos) => {
+                document.getElementById('metrica-simbolo').textContent = datos.simbolo;
+                document.getElementById('grafica-info-activo').textContent = datos.simbolo;
+            });
+
+            // Actualizar timeframe
+            busEventos.suscribir(EVENTOS.CAMBIO_TIMEFRAME, (datos) => {
+                document.getElementById('metrica-timeframe').textContent = datos.etiqueta;
+                document.getElementById('grafica-info-tf').textContent = ` · ${datos.etiqueta}`;
+            });
+
+            // Actualizar spread desde el orderbook
+            busEventos.suscribir(EVENTOS.DATOS_BOOK, (datos) => {
+                const cfg = FabricaWidgets.obtenerConfiguracion(datos.simbolo);
+                if (cfg) {
+                    document.getElementById('metrica-spread').textContent =
+                        `$${datos.spread.toFixed(cfg.precision)}`;
+                }
+            });
+
+            // Contador de ticks
+            let contadorTicksUI = 0;
+            busEventos.suscribir(EVENTOS.DATOS_TICK, () => {
+                contadorTicksUI++;
+                document.getElementById('metrica-ticks').textContent =
+                    contadorTicksUI.toLocaleString();
+            });
+
+            // Resetear contador al cambiar activo
+            busEventos.suscribir(EVENTOS.CAMBIO_ACTIVO, () => {
+                contadorTicksUI = 0;
+                document.getElementById('metrica-ticks').textContent = '0';
+                document.getElementById('metrica-spread').textContent = '—';
+            });
+
+            // Estado de conexión
+            busEventos.suscribir(EVENTOS.CONEXION_ESTADO, (datos) => {
+                const esChart = datos.tipo === 'chart';
+                const punto = document.getElementById(esChart ? 'estado-punto-chart' : 'estado-punto-book');
+                const texto = document.getElementById(esChart ? 'estado-texto-chart' : 'estado-texto-book');
+                const prefijo = esChart ? 'Chart' : 'OB';
+
+                if (punto) {
+                    punto.className = 'v2-estado-punto';
+                    if (datos.estado === 'conectado') {
+                        punto.classList.add('conectado');
+                        texto.textContent = `${prefijo}: Conectado`;
+                    } else if (datos.estado === 'conectando') {
+                        punto.classList.add('conectando');
+                        texto.textContent = `${prefijo}: Conectando...`;
+                    } else {
+                        punto.classList.add('desconectado');
+                        texto.textContent = `${prefijo}: Desconectado`;
+                    }
+                }
+            });
+
+            // ── 4. Disparar selección inicial del activo por defecto ──
+            // (Esto activa la suscripción WebSocket al símbolo inicial)
+            setTimeout(() => {
+                busEventos.emitir(EVENTOS.CAMBIO_ACTIVO, {
+                    simbolo: 'AAPL',
+                    mercado: 'DOW',
+                    configuracion: FabricaWidgets.obtenerConfiguracion('AAPL'),
+                });
+            }, 100);
+
+            // ── 5. Exponer al scope global para debugging ──
+            window.__v2 = {
+                busEventos,
+                gestor,
+                selectorActivos,
+                selectorTiempo,
+                libroOrdenes,
+                EVENTOS,
+                FabricaWidgets,
+            };
+
+            console.log('[App v2] ✅ Iniciada correctamente.');
+            console.log('[App v2] Debug: window.__v2 contiene todas las referencias.');
+            console.log('[App v2] WebSockets: ws://localhost:8765 (chart) y ws://localhost:8766 (book)');
+
+        })();
+    </script>
+
+</body>
+
+</html>
