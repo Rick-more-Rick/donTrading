@@ -78,7 +78,7 @@ class GestorWidgets {
             })
         );
 
-        // Conectar WebSockets
+        // Conectar a ambos servidores WebSocket
         this._conectarChart();
         this._conectarBook();
 
@@ -139,6 +139,16 @@ class GestorWidgets {
             console.log('[GestorWidgets] ✅ ChartServer conectado');
             this._reconexionesChart = 0;
             busEventos.emitir(EVENTOS.CONEXION_ESTADO, { tipo: 'chart', conectado: true, estado: 'conectado' });
+
+            // Si ya hay un símbolo seleccionado (CAMBIO_ACTIVO llegó antes del WS)
+            // envíarlo ahora que la conexión está lista
+            if (this._simboloActual) {
+                console.log(`[GestorWidgets] 🔄 Re-suscribiendo a '${this._simboloActual}' tras conectar`);
+                this._wsChart.send(JSON.stringify({
+                    action: 'subscribe',
+                    symbol: this._simboloActual,
+                }));
+            }
         };
 
         this._wsChart.onmessage = (evento) => {
@@ -169,10 +179,24 @@ class GestorWidgets {
                 busEventos.emitir(EVENTOS.SIMBOLOS_DISPONIBLES, { simbolos: datos.symbols });
                 break;
 
+            // Historial con velas OHLC reales (nuevo formato)
+            case 'init_ohlc':
+                busEventos.emitir(EVENTOS.DATOS_INIT, {
+                    simbolo: datos.symbol,
+                    candles: datos.candles,   // array de {time,open,high,low,close,volume}
+                    datos: null,              // no hay ticks crudos
+                    timeframe: datos.timeframe || 60,
+                    fuente: datos.source || 'polygon_rest',
+                    velas_cargadas: datos.candles_loaded || 0,
+                });
+                break;
+
+            // Historial en formato tick legacy (fallback)
             case 'init':
                 busEventos.emitir(EVENTOS.DATOS_INIT, {
                     simbolo: datos.symbol,
                     datos: datos.data,
+                    candles: null,
                     timeframe: datos.timeframe || 60,
                     fuente: datos.source || 'desconocida',
                     velas_cargadas: datos.candles_loaded || 0,
@@ -195,6 +219,7 @@ class GestorWidgets {
                     time_et: datos.time_et,
                     is_open: datos.is_open,
                     is_weekend: datos.is_weekend,
+                    next_open: datos.next_open,   // hora de próxima apertura (para el banner)
                 });
                 break;
 
@@ -309,16 +334,19 @@ class GestorWidgets {
 
     _alCambiarActivo(datos) {
         const nuevoSimbolo = datos.simbolo;
-        if (nuevoSimbolo === this._simboloActual) return;
 
-        console.log(`[GestorWidgets] Cambiando activo: ${this._simboloActual} → ${nuevoSimbolo}`);
-
-        // Limpiar memoria del activo anterior
-        this.limpiarMemoria();
+        // Permitir re-suscripción aunque sea el mismo símbolo (ej: recarga de página)
+        const cambioReal = nuevoSimbolo !== this._simboloActual;
+        if (cambioReal) {
+            console.log(`[GestorWidgets] Cambiando activo: ${this._simboloActual || '—'} → ${nuevoSimbolo}`);
+            this.limpiarMemoria();
+        } else {
+            console.log(`[GestorWidgets] Re-suscribiendo a '${nuevoSimbolo}' (mismo activo)`);
+        }
 
         this._simboloActual = nuevoSimbolo;
 
-        // Re-suscribir en ChartServer
+        // Enviar subscribe al ChartServer (pide historial OHLC + ticks en vivo)
         if (this._wsChart && this._wsChart.readyState === WebSocket.OPEN) {
             this._wsChart.send(JSON.stringify({
                 action: 'subscribe',
@@ -326,7 +354,7 @@ class GestorWidgets {
             }));
         }
 
-        // Re-suscribir en OrderBookServer
+        // Enviar subscribe al OrderBook Server
         this._enviarSuscripcionBook(nuevoSimbolo);
     }
 
@@ -336,6 +364,24 @@ class GestorWidgets {
                 action: 'subscribe',
                 symbol: simbolo,
             }));
+            console.log(`[GestorWidgets] 📡 Subscribe Book → ${simbolo}`);
+        } else {
+            // WS aún no listo: reintentar hasta que abra (máx 10 intentos × 300ms = 3s)
+            let intentos = 0;
+            const retry = setInterval(() => {
+                intentos++;
+                if (this._wsBook && this._wsBook.readyState === WebSocket.OPEN) {
+                    clearInterval(retry);
+                    // Solo suscribir si el símbolo objetivo sigue siendo el activo
+                    if (this._simboloActual === simbolo) {
+                        this._wsBook.send(JSON.stringify({ action: 'subscribe', symbol: simbolo }));
+                        console.log(`[GestorWidgets] 📡 Subscribe Book (retry ${intentos}) → ${simbolo}`);
+                    }
+                } else if (intentos >= 10) {
+                    clearInterval(retry);
+                    console.warn(`[GestorWidgets] ⚠ Subscribe Book cancelado (WS no conectó) → ${simbolo}`);
+                }
+            }, 300);
         }
     }
 

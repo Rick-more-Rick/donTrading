@@ -105,6 +105,7 @@ const busEventos = new BusEventos();
 const EVENTOS = Object.freeze({
     CAMBIO_ACTIVO: 'CAMBIO_ACTIVO',
     CAMBIO_TIMEFRAME: 'CAMBIO_TIMEFRAME',
+    CAMBIO_PRECIO: 'CAMBIO_PRECIO',              // Emitido por WidgetGraficaVelas con precio + rango
     DATOS_TICK: 'DATOS_TICK',
     DATOS_BOOK: 'DATOS_BOOK',
     DATOS_INIT: 'DATOS_INIT',
@@ -112,7 +113,10 @@ const EVENTOS = Object.freeze({
     SESION_MERCADO: 'SESION_MERCADO',
     CONEXION_ESTADO: 'CONEXION_ESTADO',
     SIMBOLOS_DISPONIBLES: 'SIMBOLOS_DISPONIBLES',
+    ESTADO_MERCADO_CERRADO: 'ESTADO_MERCADO_CERRADO',  // Gráfica detectó cierre/fin de semana
+    ESTADO_MERCADO_ABIERTO: 'ESTADO_MERCADO_ABIERTO',  // Gráfica detectó apertura/lunes
 });
+
 
 
 // ══════════════════════════════════════════════════════════════════════════

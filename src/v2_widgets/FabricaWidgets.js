@@ -420,7 +420,10 @@ class FabricaWidgets {
             'selector_activos': WidgetSelectorActivos,
             'selector_tiempo': WidgetSelectorTiempo,
             'libro_ordenes': WidgetLibroOrdenes,
-            // 'grafica': WidgetGrafica,  ← se registrará cuando se implemente
+            'grafica_velas': WidgetGraficaVelas,   // Canvas de velas + pan + zoom + crosshair
+            'grafica_eje': WidgetGraficaEje,     // Eje de precio Y (columna derecha)
+            // Registro dinámico adicional:
+            ...(FabricaWidgets._registro || {}),
         };
 
         const Clase = mapa[tipoWidget];

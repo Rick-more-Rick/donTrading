@@ -389,7 +389,8 @@ class ChartServer:
 
         try:
             await ws.send(json.dumps({"type": "symbols", "symbols": self.simbolos}))
-            await self._enviar_init(ws, simbolo)
+            tf = self._client_timeframes.get(ws, 60)
+            await self._cargar_y_enviar_historico(ws, simbolo, tf)
             await self._enviar_session(ws)
 
             # ── Verificación de datos: confirmar que los datos son de Polygon REAL ──
@@ -410,12 +411,14 @@ class ChartServer:
                     continue
                 if data.get("action") == "subscribe":
                     new_sym = data.get("symbol", simbolo).upper()
-                    if new_sym in self.simbolos:
-                        self._client_symbols[ws] = new_sym
-                        simbolo = new_sym
-                        await self._enviar_init(ws, new_sym)
-                        await self._enviar_session(ws)
-                        logger.info("Navegador cambió a símbolo '%s'", new_sym)
+                    # Aceptar cualquier símbolo válido (no solo los del .env)
+                    self._client_symbols[ws] = new_sym
+                    simbolo = new_sym
+                    # Siempre cargar historial REST para el timeframe actual del cliente
+                    tf = self._client_timeframes.get(ws, 60)
+                    await self._cargar_y_enviar_historico(ws, new_sym, tf)
+                    await self._enviar_session(ws)
+                    logger.info("Navegador suscrito a símbolo '%s' (tf=%ds)", new_sym, tf)
 
                 # ── Nuevo: cambio de timeframe desde el frontend ──
                 elif data.get("action") == "set_timeframe":
@@ -479,38 +482,38 @@ class ChartServer:
                 logger.warning("[HISTORICO] Sin datos para %s en timeframe %ds", simbolo, tf_sec)
                 return
 
-            # Convertir a formato {time, value} — enviar OHLC completo (4 puntos por barra)
-            # El AgrupadorVelas.js los agrupa en el mismo bucket y crea velas con cuerpo+mechas reales
-            ticks = []
+            # Convertir a formato {time, open, high, low, close, volume} ─ velas OHLC reales
+            candles = []
             for bar in results:
                 ts_ms = bar.get("t", 0)
                 c = bar.get("c", 0.0)
                 if ts_ms and c:
                     t = ts_ms // 1000
-                    o = bar.get("o", c)
-                    h = bar.get("h", c)
-                    l = bar.get("l", c)
-                    ticks.append({"time": t, "value": o})  # open
-                    ticks.append({"time": t, "value": h})  # high
-                    ticks.append({"time": t, "value": l})  # low
-                    ticks.append({"time": t, "value": c})  # close
+                    candles.append({
+                        "time":   t,
+                        "open":   bar.get("o", c),
+                        "high":   bar.get("h", c),
+                        "low":    bar.get("l", c),
+                        "close":  c,
+                        "volume": bar.get("v", 0),
+                    })
 
             # Stocks: eliminar barras fuera de market hours para timeline continua
             if not Mapeador.es_crypto(simbolo):
-                ticks = [t for t in ticks if _en_horario_mercado(t["time"])]
+                candles = [b for b in candles if _en_horario_mercado(b["time"])]
 
-            # Tomar las últimas 500
-            ticks = ticks[-500:]
+            # Tomar las últimas 500 barras
+            candles = candles[-500:]
 
             await ws.send(json.dumps({
-                "type": "init",
+                "type": "init_ohlc",
                 "symbol": simbolo,
-                "data": ticks,
+                "candles": candles,
                 "timeframe": tf_sec,
                 "source": "polygon_rest",
-                "candles_loaded": len(ticks),
+                "candles_loaded": len(candles),
             }))
-            logger.info("[HISTORICO] %s: %d velas de %ds enviadas", simbolo, len(ticks), tf_sec)
+            logger.info("[HISTORICO] %s: %d velas OHLC de %ds enviadas", simbolo, len(candles), tf_sec)
 
         except Exception as e:
             logger.error("[HISTORICO] Error recargando %s: %s", simbolo, e)
@@ -635,20 +638,21 @@ class OrderBookServer:
                     continue
                 if data.get("action") == "subscribe":
                     new_sym = data.get("symbol", simbolo).upper()
-                    if new_sym in self.simbolos:
-                        self._client_symbols[ws] = new_sym
-                        if new_sym in self._last_snapshot:
-                            await ws.send(json.dumps(self._last_snapshot[new_sym]))
-                        else:
-                            # Enviar snapshot vacío para limpiar OB del símbolo anterior
-                            await ws.send(json.dumps({
-                                "type": "book", "symbol": new_sym,
-                                "simbolo": new_sym,
-                                "bids": [], "asks": [],
-                                "best_bid": 0, "best_ask": 0,
-                                "spread": 0, "mid_price": 0,
-                            }))
-                        logger.info("Navegador cambió OrderBook a '%s'", new_sym)
+                    # Aceptar cualquier símbolo (no solo los del .env)
+                    self._client_symbols[ws] = new_sym
+                    simbolo = new_sym
+                    if new_sym in self._last_snapshot:
+                        await ws.send(json.dumps(self._last_snapshot[new_sym]))
+                    else:
+                        # Enviar snapshot vacío para limpiar OB del símbolo anterior
+                        await ws.send(json.dumps({
+                            "type": "book", "symbol": new_sym,
+                            "simbolo": new_sym,
+                            "bids": [], "asks": [],
+                            "best_bid": 0, "best_ask": 0,
+                            "spread": 0, "mid_price": 0,
+                        }))
+                    logger.info("Navegador cambió OrderBook a '%s'", new_sym)
 
         except websockets.ConnectionClosed:
             pass
@@ -1154,6 +1158,37 @@ class CryptoRESTPoller:
 #  ORDER BOOK SINTÉTICO PARA STOCKS (fuera de horario)
 # ══════════════════════════════════════════════════════════════════════════════
 
+async def _obtener_precio_rest_para_sintetico(simbolo: str, api_key: str) -> float:
+    """Consulta el cierre del día anterior (o último disponible) vía REST de Polygon.
+
+    Usado por el OB sintético para obtener un precio de referencia cuando el
+    símbolo no está en SIMBOLOS y por tanto no tiene trades en tiempo real.
+    Retorna 0.0 si falla o si el símbolo no es un stock válido.
+    """
+    try:
+        import aiohttp
+        ticker = Mapeador.a_polygon_ticker(simbolo)
+        url = (
+            f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev"
+            f"?adjusted=true&apiKey={api_key}"
+        )
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    results = data.get("results", [])
+                    if results:
+                        precio = results[0].get("c", 0.0)
+                        if precio > 0:
+                            logger.info(
+                                "[OB SYNTH] 💰 Precio REST para %s: $%.2f (cierre anterior)",
+                                simbolo, precio
+                            )
+                            return precio
+    except Exception as e:
+        logger.debug("[OB SYNTH] No pudo obtener precio REST para %s: %s", simbolo, e)
+    return 0.0
+
 def _generar_book_sintetico_stock(simbolo: str, precio: float, counter: int = 0) -> dict:
     """Genera un orderbook sintético para stocks fuera de horario de mercado.
 
@@ -1496,24 +1531,47 @@ def main():
     async def stock_book_sintetico_loop():
         """Genera OB sintético para stocks cuando el mercado está cerrado.
         
-        Usa el último precio histórico conocido para crear snapshots realistas.
+        Combina SIMBOLOS_STOCKS (del .env) con los símbolos suscritos dinámicamente
+        por clientes del browser. Así META/MSFT reciben datos aunque no estén en .env.
         Se detiene automáticamente cuando el mercado abre (PolygonQuotesWS toma el relevo).
         """
+        CRYPTO_SYMBOLS = set([s.upper() for s in SIMBOLOS_CRYPTO])
         counter = 0
         while True:
             await asyncio.sleep(5)
             # Solo generar cuando el mercado está CERRADO
             if MarketSession.esta_abierto():
                 continue
-            if not SIMBOLOS_STOCKS:
-                continue
-            for simbolo in SIMBOLOS_STOCKS:
+
+            # Unir símbolos del .env con los suscritos por clientes (excepto crypto)
+            simbolos_clientes = {
+                sym for sym in ob_server._client_symbols.values()
+                if sym and sym.upper() not in CRYPTO_SYMBOLS
+            }
+            simbolos_a_generar = set(SIMBOLOS_STOCKS) | simbolos_clientes
+
+            for simbolo in simbolos_a_generar:
+                # 1º: precio en tiempo real o ya cacheado
                 precio = ultimo_precio.get(simbolo, 0)
                 if precio <= 0:
+                    # 2º: último tick del price_buffer (si el usuario lo visitó antes)
+                    buf = chart_server._price_buffer.get(simbolo, {})
+                    if buf:
+                        max_ts = max(buf.keys())
+                        precio = buf[max_ts]
+                        ultimo_precio[simbolo] = precio
+                if precio <= 0:
+                    # 3º: consultar Polygon REST (cierre anterior) — solo si sin precio
+                    precio = await _obtener_precio_rest_para_sintetico(simbolo, API_KEY)
+                    if precio > 0:
+                        ultimo_precio[simbolo] = precio  # cachear para iteraciones futuras
+                if precio <= 0:
+                    logger.debug("[OB SYNTH] Sin precio para %s — omitiendo ciclo", simbolo)
                     continue
                 counter += 1
                 snapshot = _generar_book_sintetico_stock(simbolo, precio, counter)
                 al_actualizar_book(snapshot)
+
 
     # ── Ejecutar todo ──
     async def ejecutar():

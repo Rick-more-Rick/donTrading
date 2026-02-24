@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MarketDepth v2 — Arquitectura de Widgets Modular</title>
+    <title>MarketDepth Widgets Modular</title>
 
     <!-- Fuentes -->
     <style>
@@ -12,7 +12,7 @@
     </style>
 
     <!-- Estilos v2 -->
-    <link rel="stylesheet" href="/donTrading/src/v2_widgets/estilos_v2.css">
+    <link rel="stylesheet" href="./estilos_v2.css">
 </head>
 
 <body class="v2-body">
@@ -36,19 +36,12 @@
             <div id="mount-selector-tiempo"></div>
         </div>
 
-        <!-- ── ÁREA DE GRÁFICA — Placeholder para WidgetGrafica ── -->
+        <!-- Área de gráfica: Velas (izquierda) + Eje de precio (derecha) -->
         <div class="v2-panel-grafica">
-            <div class="v2-grafica-placeholder" id="mount-grafica">
-                <div class="icono">📈</div>
-                <div class="texto">
-                    Área reservada para <strong>WidgetGrafica</strong><br>
-                    <small>Para conectarlo:
-                        <code>selectorActivos.vincularGrafica(instanciaGrafica)</code></small><br><br>
-                    <span id="grafica-info-activo"
-                        style="color: #3b82f6; font-size: 14px; font-weight: 600;">AAPL</span>
-                    <span id="grafica-info-tf" style="color: #94a3b8; font-size: 11px;"> · 1m</span>
-                </div>
-            </div>
+            <!-- Canvas principal de velas -->
+            <div id="mount-grafica-velas" class="v2-grafica-wrap"></div>
+            <!-- Eje de precio Y (columna derecha, compartida con la gráfica) -->
+            <div id="mount-grafica-eje" class="v2-grafica-eje-wrap"></div>
         </div>
 
         <!-- ── PANEL ORDER BOOK (derecha) ── -->
@@ -90,18 +83,27 @@
          ═══════════════════════════════════════════════════════════════════ -->
 
     <!-- 1. Base: Sistema de eventos + Clase base -->
-    <script src="/donTrading/src/v2_widgets/ClaseBaseWidget.js"></script>
+    <script src="./ClaseBaseWidget.js"></script>
 
     <!-- 2. Configuración: Catálogo de mercados + Factory -->
-    <script src="/donTrading/src/v2_widgets/FabricaWidgets.js"></script>
+    <script src="./FabricaWidgets.js"></script>
 
-    <!-- 3. Widgets concretos -->
-    <script src="/donTrading/src/v2_widgets/WidgetSelectorActivos.js"></script>
-    <script src="/donTrading/src/v2_widgets/WidgetSelectorTiempo.js"></script>
-    <script src="/donTrading/src/v2_widgets/WidgetLibroOrdenes.js"></script>
+    <!-- 3. Módulos base de la gráfica (de modules/) — NO modificar estos archivos -->
+    <script src="../../modules/EstadoPrecio.js"></script>
+    <script src="../../modules/AgrupadorVelas.js"></script>
+    <script src="../../modules/MotorVelas.js"></script>
+    <script src="../../modules/CursorGrafica.js"></script>
+    <script src="../../modules/EjePrecio.js"></script>
 
-    <!-- 4. Gestor central (mediador de WebSockets) -->
-    <script src="/donTrading/src/v2_widgets/GestorWidgets.js"></script>
+    <!-- 4. Widgets concretos -->
+    <script src="./WidgetSelectorActivos.js"></script>
+    <script src="./WidgetSelectorTiempo.js"></script>
+    <!-- Motor del OB debe cargarse antes que su widget wrapper -->
+    <script src="../../modules/MotorOrderBook.js"></script>
+    <script src="./WidgetLibroOrdenes.js"></script>
+    <script src="./WidgetGraficaVelas.js"></script>
+    <script src="./WidgetGraficaEje.js"></script>
+    <script src="./GestorWidgets.js"></script>
 
     <!-- 5. Script de inicialización -->
     <script>
@@ -134,23 +136,26 @@
                 document.getElementById('mount-orderbook'),
                 {
                     simbolo: 'AAPL',
-                    paso_precio: 0.01,
-                    precision: 2,
-                    alturaFila: 18,
+                    host: 'localhost',
+                    puertoBook: 8766,
                 }
             );
 
-            // ── WidgetGrafica (pendiente de implementación) ──────────────────
-            // Cuando se cree WidgetGrafica.js, descomenta estas líneas:
-            //
-            // FabricaWidgets.registrar('grafica', WidgetGrafica);
-            // const grafica = FabricaWidgets.crear(
-            //     'grafica',
-            //     document.getElementById('mount-grafica'),
-            //     { simbolo: 'AAPL', timeframe: 60 }
-            // );
-            // selectorActivos.vincularGrafica(grafica);
-            // ────────────────────────────────────────────────────────────────
+            // ── Gráfica de velas + Eje de precio ──
+            const graficaVelas = FabricaWidgets.crear(
+                'grafica_velas',
+                document.getElementById('mount-grafica-velas'),
+                { simbolo: 'AAPL', timeframe: 60, precision: 2 }
+            );
+
+            const graficaEje = FabricaWidgets.crear(
+                'grafica_eje',
+                document.getElementById('mount-grafica-eje'),
+                {}
+            );
+
+            // Compartir el SharedPriceState entre velas y eje
+            graficaVelas.vincularEje(graficaEje);
 
             // ── 2. Iniciar el Gestor Central (conecta WebSockets) ──
 
@@ -166,13 +171,11 @@
             // Actualizar símbolo activo
             busEventos.suscribir(EVENTOS.CAMBIO_ACTIVO, (datos) => {
                 document.getElementById('metrica-simbolo').textContent = datos.simbolo;
-                document.getElementById('grafica-info-activo').textContent = datos.simbolo;
             });
 
             // Actualizar timeframe
             busEventos.suscribir(EVENTOS.CAMBIO_TIMEFRAME, (datos) => {
                 document.getElementById('metrica-timeframe').textContent = datos.etiqueta;
-                document.getElementById('grafica-info-tf').textContent = ` · ${datos.etiqueta}`;
             });
 
             // Actualizar spread desde el orderbook
@@ -229,7 +232,7 @@
                     mercado: 'DOW',
                     configuracion: FabricaWidgets.obtenerConfiguracion('AAPL'),
                 });
-            }, 100);
+            }, 500);
 
             // ── 5. Exponer al scope global para debugging ──
             window.__v2 = {
@@ -238,6 +241,8 @@
                 selectorActivos,
                 selectorTiempo,
                 libroOrdenes,
+                graficaVelas,
+                graficaEje,
                 EVENTOS,
                 FabricaWidgets,
             };

@@ -25,16 +25,32 @@ from __future__ import annotations
 
 POLYGON_WS_STOCKS = "wss://socket.polygon.io/stocks"
 POLYGON_WS_CRYPTO = "wss://socket.polygon.io/crypto"
+POLYGON_WS_FOREX  = "wss://socket.polygon.io/forex"
 
-# Criptomonedas conocidas — el usuario escribe "BTCUSD" y el sistema lo convierte
-# a "X:BTCUSD" para la API de Polygon.io.
+# ── Cryptos conocidas del catálogo (base sin la moneda de cotización) ──
 CRYPTO_BASES = {
-    "BTC", "ETH", "SOL", "ADA", "DOT", "AVAX", "MATIC", "LINK",
-    "DOGE", "SHIB", "XRP", "BNB", "LTC", "UNI", "AAVE",
+    # Top caps
+    "BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "AVAX",
+    "DOGE", "DOT", "MATIC",
+    # DeFi / Infra
+    "LINK", "LTC", "SHIB", "UNI", "ATOM", "XLM", "ETC",
+    "ALGO", "VET", "ICP", "FIL", "AAVE", "SAND", "MANA",
+    "AXS", "APT", "OP", "ARB", "SUI", "INJ",
 }
 
-# Monedas fiat de cotización
+# ── Monedas de cotización válidas ──
 CRYPTO_QUOTES = {"USD", "USDT", "EUR", "GBP", "JPY"}
+
+# ── Pares FOREX — Símbolos que van al endpoint C: de Polygon ──
+# Formato: el símbolo tiene 6 letras (EURUSD, USDJPY) o es un par de metales (XAUUSD, XAGUSD)
+FOREX_BASES = {
+    "EUR", "GBP", "AUD", "NZD", "USD", "CAD", "CHF", "JPY",
+    "MXN", "BRL", "CLP", "COP", "ARS",
+    "XAU", "XAG", "XPT",  # metales preciosos (spot forex)
+}
+
+FOREX_QUOTES = {"USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD",
+                "MXN", "BRL", "CLP", "COP", "ARS"}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -59,7 +75,7 @@ class Mapeador:
 
     @staticmethod
     def es_crypto(simbolo: str) -> bool:
-        """Detecta si un símbolo es criptomoneda.
+        """Detecta si un símbolo es criptomoned.
         
         Soporta múltiples formatos:
             "X:BTCUSD"  → True (formato Polygon)
@@ -85,6 +101,35 @@ class Mapeador:
         return False
 
     @staticmethod
+    def es_forex(simbolo: str) -> bool:
+        """Detecta si un símbolo es un par del mercado de divisas o metal precioso spot.
+
+        "EURUSD" → True  |  "XAUUSD" → True  |  "AAPL" → False
+        """
+        simbolo = simbolo.upper().strip()
+        
+        # Formato explícito de Polygon: "C:EURUSD"
+        if simbolo.startswith("C:"):
+            return True
+        
+        # Si ya es crypto, no es forex
+        if Mapeador.es_crypto(simbolo):
+            return False
+        
+        limpio = simbolo.replace("-", "")
+        
+        # Verificar si base 3 letras + quote 3 letras y ambos son divisas/metales conocidos
+        if len(limpio) == 6:
+            base  = limpio[:3]
+            quote = limpio[3:]
+            if base in FOREX_BASES and quote in FOREX_QUOTES:
+                # Excluir parámetros que no existan (ej. "USDMXN" tiene base en FOREX_BASES)
+                return True
+        
+        return False
+
+
+    @staticmethod
     def normalizar(simbolo: str) -> str:
         """Convierte cualquier formato a símbolo limpio interno.
         
@@ -106,12 +151,15 @@ class Mapeador:
     def a_polygon_ticker(simbolo: str) -> str:
         """Convierte un símbolo limpio al formato que espera Polygon REST/WS.
         
-        "BTCUSD" → "X:BTCUSD"
-        "AAPL"   → "AAPL"
+        "BTCUSD" → "X:BTCUSD"   (crypto)
+        "EURUSD" → "C:EURUSD"   (forex)
+        "AAPL"   → "AAPL"       (stock)
         """
         limpio = Mapeador.normalizar(simbolo)
         if Mapeador.es_crypto(limpio):
             return f"X:{limpio}"
+        if Mapeador.es_forex(limpio):
+            return f"C:{limpio}"
         return limpio
 
     @staticmethod
@@ -142,11 +190,14 @@ class Mapeador:
     def ws_url(simbolo: str) -> str:
         """URL del WebSocket adecuada según el tipo de activo.
         
-        "BTCUSD" → "wss://socket.polygon.io/crypto"
-        "AAPL"   → "wss://socket.polygon.io/stocks"
+        "BTCUSD" → wss://socket.polygon.io/crypto
+        "EURUSD" → wss://socket.polygon.io/forex
+        "AAPL"   → wss://socket.polygon.io/stocks
         """
         if Mapeador.es_crypto(simbolo):
             return POLYGON_WS_CRYPTO
+        if Mapeador.es_forex(simbolo):
+            return POLYGON_WS_FOREX
         return POLYGON_WS_STOCKS
 
     @staticmethod

@@ -375,39 +375,7 @@ body.v2-body {
 }
 
 
-/* ══════════════════════════════════════════════════════════════════════════
-   ÁREA DE GRÁFICA (placeholder)
-   ══════════════════════════════════════════════════════════════════════════ */
 
-.v2-panel-grafica {
-    grid-area: grafica;
-    background: var(--v2-bg-primario);
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 300px;
-}
-
-.v2-grafica-placeholder {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 12px;
-    color: var(--v2-texto-muted);
-}
-
-.v2-grafica-placeholder .icono {
-    font-size: 48px;
-    opacity: 0.3;
-}
-
-.v2-grafica-placeholder .texto {
-    font-size: 13px;
-    text-align: center;
-    line-height: 1.6;
-}
 
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -564,4 +532,406 @@ body.v2-body {
 
 .v2-dropdown-activos::-webkit-scrollbar-thumb:hover {
     background: var(--v2-texto-muted);
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PANEL DE GRÁFICA — Layout general
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-panel-grafica {
+    grid-area: grafica;
+    background: var(--v2-bg-primario);
+    display: flex;
+    flex-direction: row;
+    overflow: hidden;
+    position: relative;
+}
+
+/* Contenedor principal del widget (flex column: toolbar + zona + eje-tiempo) */
+.v2-grafica-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    /* necesario en Firefox para que flex-grow funcione en columna */
+}
+
+/* Zona del canvas (ocupa todo el espacio disponible) */
+.v2-grafica-zona {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    min-height: 0;
+}
+
+/* Canvas apilados — velas debajo, crosshair encima */
+.v2-canvas-velas,
+.v2-canvas-crosshair {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.v2-canvas-crosshair {
+    cursor: crosshair;
+    z-index: 2;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TOOLBAR INTERNA (PAUSA / RESET)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-toolbar-grafica {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid var(--v2-borde);
+    border-radius: 8px;
+    padding: 4px 8px;
+    backdrop-filter: blur(6px);
+}
+
+.v2-grafica-titulo {
+    font-family: var(--v2-fuente-ui);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--v2-texto);
+    letter-spacing: 0.5px;
+    padding-right: 8px;
+}
+
+.v2-btn-toolbar {
+    font-size: 13px;
+    padding: 4px 8px;
+    border: 1px solid var(--v2-borde);
+    border-radius: 5px;
+    background: transparent;
+    color: var(--v2-texto-sec);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.v2-btn-toolbar:hover {
+    background: var(--v2-bg-panel);
+    color: var(--v2-texto);
+    border-color: var(--v2-azul);
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TOOLTIP OHLCV
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-grafica-tooltip {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 10;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    background: rgba(15, 23, 42, 0.88);
+    border: 1px solid var(--v2-borde);
+    border-radius: 6px;
+    padding: 4px 10px;
+    backdrop-filter: blur(4px);
+    pointer-events: none;
+}
+
+.v2-tt-hora {
+    font-size: 10px;
+    color: var(--v2-texto-muted);
+    font-family: var(--v2-fuente-mono);
+}
+
+.v2-tt-dato {
+    font-size: 11px;
+    font-family: var(--v2-fuente-mono);
+    font-weight: 500;
+}
+
+.v2-tt-dato.alza {
+    color: var(--v2-verde);
+}
+
+.v2-tt-dato.baja {
+    color: var(--v2-rojo);
+}
+
+.v2-tt-vol {
+    font-size: 10px;
+    color: var(--v2-texto-muted);
+    font-family: var(--v2-fuente-mono);
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   EJE DE TIEMPO (barra inferior del canvas)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-eje-tiempo {
+    height: 22px;
+    background: var(--v2-bg-secundario);
+    border-top: 1px solid var(--v2-borde);
+    position: relative;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.v2-etq-tiempo {
+    position: absolute;
+    transform: translateX(-50%);
+    font-family: var(--v2-fuente-mono);
+    font-size: 9px;
+    color: var(--v2-texto-muted);
+    top: 4px;
+    white-space: nowrap;
+    user-select: none;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BANNER "BOLSA CERRADA"
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-banner-cerrada {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: rgba(10, 14, 23, 0.82);
+    backdrop-filter: blur(8px);
+    pointer-events: none;
+}
+
+.v2-banner-icono {
+    font-size: 42px;
+    line-height: 1;
+    filter: drop-shadow(0 0 16px rgba(239, 68, 68, 0.5));
+}
+
+.v2-banner-titulo {
+    font-family: var(--v2-fuente-ui);
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--v2-rojo);
+    letter-spacing: 1px;
+}
+
+.v2-banner-sub {
+    font-size: 12px;
+    color: var(--v2-ambar);
+    font-family: var(--v2-fuente-mono);
+}
+
+.v2-banner-nota {
+    font-size: 11px;
+    color: var(--v2-texto-muted);
+    margin-top: 4px;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BANNER "PAUSA MANUAL"
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-banner-pausa {
+    position: absolute;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 15;
+    display: none;
+    align-items: center;
+    gap: 8px;
+    background: rgba(15, 23, 42, 0.90);
+    border: 1px solid var(--v2-ambar);
+    border-radius: 8px;
+    padding: 6px 14px;
+    backdrop-filter: blur(4px);
+    pointer-events: none;
+}
+
+.v2-banner-pausa-icono {
+    font-size: 16px;
+    color: var(--v2-ambar);
+}
+
+.v2-banner-pausa-txt {
+    font-size: 12px;
+    font-family: var(--v2-fuente-ui);
+    font-weight: 600;
+    color: var(--v2-ambar);
+    letter-spacing: 0.5px;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   EJE DE PRECIO Y (columna derecha — WidgetGraficaEje)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-grafica-eje-wrap {
+    width: 65px;
+    flex-shrink: 0;
+    background: var(--v2-bg-secundario);
+    border-left: 1px solid var(--v2-borde);
+    position: relative;
+    overflow: hidden;
+}
+
+.v2-canvas-eje {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   OVERLAY DE CARGA (mientras llega el histórico de Polygon)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-overlay-loading {
+    position: absolute;
+    inset: 0;
+    z-index: 25;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: rgba(10, 14, 23, 0.80);
+    backdrop-filter: blur(6px);
+    pointer-events: none;
+}
+
+.v2-loading-spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid rgba(59, 130, 246, 0.25);
+    border-top-color: var(--v2-azul);
+    border-radius: 50%;
+    animation: v2-spin 0.75s linear infinite;
+}
+
+@keyframes v2-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.v2-loading-simbolo {
+    font-family: var(--v2-fuente-ui);
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--v2-texto);
+    letter-spacing: 1px;
+}
+
+.v2-loading-texto {
+    font-size: 11px;
+    color: var(--v2-texto-muted);
+    font-family: var(--v2-fuente-mono);
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TÍTULO PROMINENTE DEL ACTIVO EN LA TOOLBAR DE GRÁFICA
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Bloque que agrupa símbolo + timeframe */
+.v2-grafica-bloque-simbolo {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding-right: 10px;
+    border-right: 1px solid var(--v2-borde);
+    margin-right: 6px;
+}
+
+/* Símbolo grande (ej: "AAPL") */
+.v2-grafica-titulo {
+    font-family: var(--v2-fuente-ui);
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--v2-texto);
+    letter-spacing: 0.5px;
+}
+
+/* Etiqueta del timeframe al lado del símbolo (ej: "1m") */
+.v2-grafica-subtitulo-tf {
+    font-family: var(--v2-fuente-mono);
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--v2-azul);
+    background: rgba(59, 130, 246, 0.12);
+    border: 1px solid rgba(59, 130, 246, 0.25);
+    border-radius: 3px;
+    padding: 1px 5px;
+    letter-spacing: 0.3px;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BADGE DE SESIÓN DE MERCADO (toolbar de la gráfica)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-badge-sesion {
+    font-family: var(--v2-fuente-mono);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid currentColor;
+    letter-spacing: 0.4px;
+    white-space: nowrap;
+    transition: color 0.3s, background 0.3s;
+    /* Estado inicial (cargando) */
+    color: var(--v2-texto-muted);
+    background: transparent;
+}
+
+/* ── Regular (mercado en horario normal) */
+.v2-badge-sesion.sesion-regular {
+    color: #22c55e;
+    background: rgba(34, 197, 94, 0.10);
+    border-color: rgba(34, 197, 94, 0.35);
+}
+
+/* ── Pre-Market (antes de apertura) */
+.v2-badge-sesion.sesion-pre {
+    color: #60a5fa;
+    background: rgba(96, 165, 250, 0.10);
+    border-color: rgba(96, 165, 250, 0.35);
+}
+
+/* ── After Hours (post-cierre) */
+.v2-badge-sesion.sesion-after {
+    color: #fb923c;
+    background: rgba(251, 146, 60, 0.10);
+    border-color: rgba(251, 146, 60, 0.35);
+}
+
+/* ── Cerrado (fin de semana o fuera de horario) */
+.v2-badge-sesion.sesion-cerrado {
+    color: #6b7280;
+    background: rgba(107, 114, 128, 0.10);
+    border-color: rgba(107, 114, 128, 0.30);
 }
