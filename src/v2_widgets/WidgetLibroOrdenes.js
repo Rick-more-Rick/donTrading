@@ -840,6 +840,21 @@ class WidgetLibroOrdenes extends ClaseBaseWidget {
             });
         }
 
+        // ── Sincronizar precio con la gráfica ──────────────────────────────
+        // Emitir PRECIO_OB_SYNC con el mid_price del L2 para que WidgetGraficaVelas
+        // actualice su display de precio. Se usa un evento dedicado (NO DATOS_TICK)
+        // para evitar que el precio del book se procese como trade y genere velas falsas.
+        const midPrice = datos.mid_price ?? 0;
+        const simbolo = datos.symbol || datos.simbolo || this._simbolo;
+        if (midPrice > 0 && simbolo) {
+            busEventos.emitir(EVENTOS.PRECIO_OB_SYNC, {
+                simbolo,
+                value: midPrice,
+                best_bid: datos.best_bid ?? 0,
+                best_ask: datos.best_ask ?? 0,
+            });
+        }
+
         // Actualizar footer
         if (this._els.footerSpread && datos.spread !== undefined)
             this._els.footerSpread.textContent = '$' + datos.spread.toFixed(4);

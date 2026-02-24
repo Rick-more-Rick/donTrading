@@ -354,7 +354,8 @@ class ChartServer:
         {"action": "subscribe", "symbol": "TSLA"}
     """
 
-    def __init__(self, simbolos: list[str], host: str = "localhost", port: int = 8765):
+    def __init__(self, simbolos: list[str], host: str = "localhost", port: int = 8765,
+                 on_nuevo_simbolo_cb=None):
         self.simbolos = simbolos
         self.host = host
         self.port = port
@@ -363,6 +364,8 @@ class ChartServer:
         self._client_timeframes: dict = {}  # Timeframe seleccionado por cada cliente
         self._price_buffer: defaultdict[str, dict[int, float]] = defaultdict(dict)
         self._server = None
+        # Callback opcional: (simbolo: str) → se llama cuando el browser suscribe un símbolo nuevo
+        self._on_nuevo_simbolo = on_nuevo_simbolo_cb
 
 
     async def iniciar(self) -> None:
@@ -419,6 +422,9 @@ class ChartServer:
                     await self._cargar_y_enviar_historico(ws, new_sym, tf)
                     await self._enviar_session(ws)
                     logger.info("Navegador suscrito a símbolo '%s' (tf=%ds)", new_sym, tf)
+                    # ── Suscribir en caliente al motor de trades para recibir ticks ──
+                    if self._on_nuevo_simbolo:
+                        await self._on_nuevo_simbolo(new_sym)
 
                 # ── Nuevo: cambio de timeframe desde el frontend ──
                 elif data.get("action") == "set_timeframe":
@@ -1487,9 +1493,9 @@ def main():
         max_reconexiones=50, heartbeat_seg=30,
     ) if SIMBOLOS_STOCKS else None
 
-    # ── Conectar callback de suscripción dinámica ──
+    # ── Conectar callbacks de suscripción dinámica ──
     async def _suscribir_simbolo_dinamico(simbolo: str) -> None:
-        """Suscribe en caliente cuando el browser pide un símbolo no listado."""
+        """Suscribe en caliente cuando el browser pide un símbolo no listado al OrderBook."""
         if not motor_quotes:
             return
         from mapeador_simbolos import Mapeador
@@ -1498,7 +1504,20 @@ def main():
         await motor_quotes.suscribir_simbolo(simbolo)
         logger.info("[OB] 🔔 Suscripción dinámica a Polygon Quotes: %s", simbolo)
 
+    async def _suscribir_simbolo_dinamico_trades(simbolo: str) -> None:
+        """Suscribe en caliente al motor de trades cuando el browser pide un símbolo nuevo."""
+        from mapeador_simbolos import Mapeador
+        if Mapeador.es_crypto(simbolo):
+            return   # crypto usa REST poller — no el WS de trades
+        if motor_trades:
+            await motor_trades.suscribir_simbolo(simbolo)
+            logger.info("[TRADES] 🔔 Suscripción dinámica a Polygon Trades: %s", simbolo)
+        # También suscribir al OB (quotes) para sincronización de precio
+        if motor_quotes:
+            await motor_quotes.suscribir_simbolo(simbolo)
+
     ob_server._on_nuevo_simbolo = _suscribir_simbolo_dinamico
+    chart_server._on_nuevo_simbolo = _suscribir_simbolo_dinamico_trades
 
     # No hay motor de quotes crypto (REST no soporta orderbook L2 en tiempo real)
     motor_quotes_crypto = None

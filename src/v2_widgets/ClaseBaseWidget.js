@@ -115,6 +115,7 @@ const EVENTOS = Object.freeze({
     SIMBOLOS_DISPONIBLES: 'SIMBOLOS_DISPONIBLES',
     ESTADO_MERCADO_CERRADO: 'ESTADO_MERCADO_CERRADO',  // Gráfica detectó cierre/fin de semana
     ESTADO_MERCADO_ABIERTO: 'ESTADO_MERCADO_ABIERTO',  // Gráfica detectó apertura/lunes
+    PRECIO_OB_SYNC: 'PRECIO_OB_SYNC',           // Order Book → Gráfica: mid_price del L2 en tiempo real
 });
 
 

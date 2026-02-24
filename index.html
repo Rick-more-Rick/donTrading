@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DONTRADING — Iniciando</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
+
+    <!-- Widget de partículas monetarias -->
+    <script>
+        window.IconsWidgetOptions = {
+            countMin: 40,
+            countMax: 90,
+            repelRadius: 100,
+            connectDist: 130,
+            lineOpacity: 0.06,
+            glowProb: 0.35,
+        };
+    </script>
+    <script src="icons-widget.js"></script>
+
+    <style>
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --bg: #050a10;
+            --accent: #f59e0b;
+            --accent2: #fbbf24;
+            --green: #22c55e;
+            --text: #f1f5f9;
+            --muted: #64748b;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        /* ── CONTENEDOR CENTRAL ── */
+        .splash {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0;
+            position: relative;
+            z-index: 1;
+            text-align: center;
+        }
+
+        /* ── LOGO ── */
+        .logo-ring {
+            position: relative;
+            width: 110px;
+            height: 110px;
+            margin-bottom: 36px;
+            animation: fadeIn .8s ease both;
+        }
+
+        /* Anillo giratorio exterior */
+        .ring-svg {
+            position: absolute;
+            inset: 0;
+            animation: spin 3s linear infinite;
+        }
+
+        /* Icono central DT */
+        .logo-core {
+            position: absolute;
+            inset: 12px;
+            border-radius: 22px;
+            background: linear-gradient(135deg, var(--accent), #d97706);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 28px;
+            color: #050a10;
+            box-shadow: 0 0 40px rgba(245, 158, 11, 0.35);
+            animation: logoPulse 2.5s ease-in-out infinite;
+        }
+
+        @keyframes logoPulse {
+
+            0%,
+            100% {
+                box-shadow: 0 0 30px rgba(245, 158, 11, .3);
+            }
+
+            50% {
+                box-shadow: 0 0 55px rgba(245, 158, 11, .55);
+            }
+        }
+
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        @keyframes spinRev {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(-360deg);
+            }
+        }
+
+        /* ── NOMBRE ── */
+        .brand-name {
+            font-size: 32px;
+            font-weight: 900;
+            letter-spacing: -1px;
+            margin-bottom: 6px;
+            animation: fadeUp .7s .3s ease both;
+        }
+
+        .brand-name span {
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .brand-sub {
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 52px;
+            animation: fadeUp .7s .4s ease both;
+        }
+
+        /* ── BARRA DE PROGRESO ── */
+        .progress-wrap {
+            width: 340px;
+            animation: fadeUp .7s .5s ease both;
+        }
+
+        .progress-status {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .status-text {
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            color: var(--muted);
+            transition: color .4s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-text.done {
+            color: var(--green);
+        }
+
+        .status-text.active {
+            color: var(--accent);
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: blink 1s ease infinite;
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.2;
+            }
+        }
+
+        .pct-text {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        .progress-track {
+            width: 100%;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 100px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-fill {
+            height: 100%;
+            border-radius: 100px;
+            background: linear-gradient(90deg, var(--accent), var(--accent2), #f97316);
+            width: 0%;
+            transition: width 0.5s cubic-bezier(.4, 0, .2, 1);
+            position: relative;
+        }
+
+        /* Brillo que viaja sobre la barra */
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            height: 100%;
+            width: 60px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5));
+            border-radius: 100px;
+        }
+
+        /* ── ETAPAS ── */
+        .stages {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 14px;
+        }
+
+        .stage {
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            color: rgba(255, 255, 255, 0.15);
+            transition: color .4s;
+        }
+
+        .stage.done {
+            color: var(--green);
+        }
+
+        .stage.active {
+            color: var(--accent);
+        }
+
+        /* ── TAGLINE ── */
+        .tagline {
+            margin-top: 48px;
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.12);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            animation: fadeUp .7s .6s ease both;
+        }
+
+        /* ── OVERLAY DE SALIDA ── */
+        .exit-overlay {
+            position: fixed;
+            inset: 0;
+            background: var(--bg);
+            z-index: 999;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .6s ease;
+        }
+
+        .exit-overlay.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        /* ── KEYFRAMES ── */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        @keyframes fadeUp {
+            from {
+                opacity: 0;
+                transform: translateY(18px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="exit-overlay" id="exitOverlay"></div>
+
+    <div class="splash">
+
+        <!-- Logo animado -->
+        <div class="logo-ring">
+            <!-- Anillo exterior SVG giratorio -->
+            <svg class="ring-svg" viewBox="0 0 110 110" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="55" cy="55" r="50" stroke="rgba(245,158,11,0.12)" stroke-width="1.5" />
+                <!-- arco punteado -->
+                <circle cx="55" cy="55" r="50" stroke="url(#arcGrad)" stroke-width="1.5" stroke-dasharray="80 235"
+                    stroke-linecap="round" />
+                <!-- puntos decorativos -->
+                <circle cx="55" cy="5" r="3" fill="#f59e0b" opacity=".8" />
+                <circle cx="105" cy="55" r="2" fill="#fbbf24" opacity=".5" />
+                <circle cx="55" cy="105" r="2" fill="#d97706" opacity=".4" />
+                <defs>
+                    <linearGradient id="arcGrad" x1="0" y1="0" x2="110" y2="110" gradientUnits="userSpaceOnUse">
+                        <stop offset="0%" stop-color="#f59e0b" />
+                        <stop offset="100%" stop-color="#fbbf24" stop-opacity="0" />
+                    </linearGradient>
+                </defs>
+            </svg>
+            <!-- Anillo interior inverso (más lento) -->
+            <svg style="position:absolute;inset:8px;animation:spinRev 5s linear infinite" viewBox="0 0 94 94"
+                fill="none">
+                <circle cx="47" cy="47" r="42" stroke="rgba(245,158,11,0.07)" stroke-width="1" />
+                <circle cx="47" cy="47" r="42" stroke="rgba(245,158,11,0.25)" stroke-width="1" stroke-dasharray="30 235"
+                    stroke-linecap="round" />
+            </svg>
+            <div class="logo-core">DT</div>
+        </div>
+
+        <!-- Nombre -->
+        <div class="brand-name"><span>DONTRADING</span></div>
+        <div class="brand-sub">Sistema de Inversión Privada</div>
+
+        <!-- Barra de progreso -->
+        <div class="progress-wrap">
+            <div class="progress-status">
+                <span class="status-text active" id="statusText">
+                    <span class="status-dot"></span>
+                    <span id="statusLabel">Conectando...</span>
+                </span>
+                <span class="pct-text" id="pctText">0%</span>
+            </div>
+            <div class="progress-track">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="stages">
+                <span class="stage active" id="s1">Conectando</span>
+                <span class="stage" id="s2">Mercados</span>
+                <span class="stage" id="s3">Sesión</span>
+                <span class="stage" id="s4">Listo</span>
+            </div>
+        </div>
+
+        <div class="tagline">Powered by Polygon.io · Latencia &lt; 50ms</div>
+    </div>
+
+    <script>
+        // ══════════════════════════════════════════════════════
+        //  CONFIGURACIÓN DEL SPLASH
+        // ══════════════════════════════════════════════════════
+        const REDIRECT_URL = 'login.html';   // Destino al terminar
+        const TOTAL_MS = 4200;           // Duración total del splash
+
+        // Etapas: [porcentaje_inicio, porcentaje_fin, duración_ms, texto_estado, id_stage]
+        const STAGES = [
+            { from: 0, to: 28, dur: 900, label: 'Conectando al servidor...', stageId: 's1' },
+            { from: 28, to: 58, dur: 900, label: 'Cargando datos de mercado...', stageId: 's2' },
+            { from: 58, to: 85, dur: 900, label: 'Verificando sesión...', stageId: 's3' },
+            { from: 85, to: 100, dur: 700, label: 'Todo listo. Ingresando...', stageId: 's4' },
+        ];
+
+        // ── Elementos ──
+        const fill = document.getElementById('progressFill');
+        const statusText = document.getElementById('statusText');
+        const statusLbl = document.getElementById('statusLabel');
+        const pctEl = document.getElementById('pctText');
+        const overlay = document.getElementById('exitOverlay');
+
+        // ── Animación de porcentaje ──
+        function animPct(from, to, dur, label, stageId) {
+            return new Promise(resolve => {
+                // Marcar stage activo
+                document.querySelectorAll('.stage').forEach(s => {
+                    s.classList.remove('active');
+                    if (parseInt(s.id.slice(1)) <
+                        parseInt(stageId.slice(1))) s.classList.add('done');
+                });
+                const el = document.getElementById(stageId);
+                if (el) el.classList.add('active');
+
+                // Texto de estado
+                statusLbl.textContent = label;
+                statusText.className = 'status-text active';
+
+                // Mover barra
+                fill.style.transition = `width ${dur}ms cubic-bezier(.4,0,.2,1)`;
+                fill.style.width = to + '%';
+
+                // Contador de %
+                const startTime = performance.now();
+                const step = (now) => {
+                    const elapsed = now - startTime;
+                    const progress = Math.min(elapsed / dur, 1);
+                    const current = Math.round(from + (to - from) * progress);
+                    pctEl.textContent = current + '%';
+                    if (progress < 1) requestAnimationFrame(step);
+                    else { pctEl.textContent = to + '%'; resolve(); }
+                };
+                requestAnimationFrame(step);
+
+                setTimeout(resolve, dur + 50);
+            });
+        }
+
+        // ── Secuencia principal ──
+        async function runSplash() {
+            // Pequeña pausa inicial para que el canvas se inicialice
+            await new Promise(r => setTimeout(r, 350));
+
+            for (const stage of STAGES) {
+                await animPct(stage.from, stage.to, stage.dur, stage.label, stage.stageId);
+                await new Promise(r => setTimeout(r, 80)); // pequeña pausa entre etapas
+            }
+
+            // Marcar todas como done
+            document.querySelectorAll('.stage').forEach(s => {
+                s.classList.remove('active');
+                s.classList.add('done');
+            });
+            statusText.className = 'status-text done';
+            statusLbl.textContent = '¡Conexión establecida!';
+            statusText.querySelector('.status-dot').style.animation = 'none';
+
+            // Pausa breve de éxito
+            await new Promise(r => setTimeout(r, 500));
+
+            // Fade out y redirección
+            overlay.classList.add('active');
+            setTimeout(() => { window.location.href = REDIRECT_URL; }, 700);
+        }
+
+        runSplash();
+    </script>
+
+</body>
+
+</html>

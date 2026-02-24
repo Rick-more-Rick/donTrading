@@ -114,6 +114,18 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
         this._escuchar(EVENTOS.DATOS_INIT, (payload) => this._onInit(payload));
         this._escuchar(EVENTOS.DATOS_TICK, (payload) => this._onTick(payload));
         this._escuchar(EVENTOS.SESION_MERCADO, (payload) => this._onSession(payload));
+
+        // ── Sincronización de precio con el Order Book ──────────────────────
+        // PRECIO_OB_SYNC llega con el mid_price del L2 (Polygon Quotes WS).
+        // Solo actualizamos _precioActual y el display — NO el agregador de velas.
+        this._escuchar(EVENTOS.PRECIO_OB_SYNC, (payload) => {
+            const sym = payload.simbolo || payload.symbol;
+            if (sym && sym !== this._simbolo) return;   // filtrar por activo activo
+            const p = payload.value;
+            if (typeof p !== 'number' || !isFinite(p) || p <= 0) return;
+            this._precioActual = p;
+            this._actualizarPrecioUI();                 // actualizar display sin tocar velas
+        });
     }
 
     renderizar() {
@@ -580,6 +592,14 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
      */
     _detectarBanderasHistoricas(velas) {
         if (!velas || velas.length < 2) return;
+
+        // En timeframes >= 1H cada vela no representa un minuto → la sesión por timestamp
+        // no puede detectar transiciones intra-día. Saltamos para evitar banderas erróneas.
+        const tf = this._timeframe || 60;
+        if (tf >= 3600) {
+            console.log(`[GraficaVelas] 🚩 Banderas históricas omitidas en timeframe >= 1H (tf=${tf}s)`);
+            return;
+        }
 
         // ── Solo 3 banderas: OPEN (9:30 ET), AFTER (16:00 ET), CIERRE (20:00 ET) ──
         // Reglas:

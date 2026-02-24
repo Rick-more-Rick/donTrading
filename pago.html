@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DONTRADING — Pago</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <script src="icons-widget.js"></script>
+    <style>
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0
+        }
+
+        :root {
+            --bg: #050a10;
+            --accent: #f59e0b;
+            --accent2: #fbbf24;
+            --green: #22c55e;
+            --text: #f1f5f9;
+            --muted: #64748b;
+            --border: rgba(255, 255, 255, .06);
+            --card: rgba(255, 255, 255, .03);
+            --ibg: rgba(0, 0, 0, .35);
+            --iborder: rgba(255, 255, 255, .08)
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 88px 20px 40px
+        }
+
+        .navbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 5%;
+            height: 64px;
+            background: rgba(5, 10, 16, .9);
+            backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border)
+        }
+
+        .nav-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+            color: var(--text)
+        }
+
+        .nav-logo-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 9px;
+            background: linear-gradient(135deg, var(--accent), #d97706);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+            font-size: 13px;
+            color: #050a10
+        }
+
+        .nav-logo-text {
+            font-weight: 800;
+            font-size: 16px
+        }
+
+        .nav-back {
+            font-size: 13px;
+            color: var(--muted);
+            text-decoration: none;
+            transition: color .2s
+        }
+
+        .nav-back:hover {
+            color: var(--text)
+        }
+
+        .steps {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 32px;
+            z-index: 1;
+            position: relative
+        }
+
+        .step {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--muted)
+        }
+
+        .step.done {
+            color: var(--green)
+        }
+
+        .step.active {
+            color: var(--accent)
+        }
+
+        .step-num {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: 1px solid currentColor;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700
+        }
+
+        .step-sep {
+            width: 40px;
+            height: 1px;
+            background: var(--border)
+        }
+
+        .pago-wrap {
+            display: grid;
+            grid-template-columns: 1fr 340px;
+            gap: 20px;
+            width: 100%;
+            max-width: 820px;
+            z-index: 1;
+            position: relative
+        }
+
+        .pago-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 36px 32px;
+            position: relative;
+            overflow: hidden
+        }
+
+        .pago-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 15%;
+            right: 15%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--accent), transparent);
+            opacity: .4
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: 800;
+            margin-bottom: 24px
+        }
+
+        .pay-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px
+        }
+
+        .pay-tab {
+            flex: 1;
+            height: 44px;
+            border-radius: 10px;
+            border: 1px solid var(--iborder);
+            background: var(--ibg);
+            color: var(--muted);
+            font-family: 'Outfit', sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all .2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px
+        }
+
+        .pay-tab:hover {
+            border-color: rgba(255, 255, 255, .15);
+            color: var(--text)
+        }
+
+        .pay-tab.active {
+            border-color: var(--accent);
+            background: rgba(245, 158, 11, .08);
+            color: var(--accent)
+        }
+
+        .pay-panel {
+            display: none
+        }
+
+        .pay-panel.show {
+            display: block;
+            animation: fu .25s ease
+        }
+
+        .form-group {
+            margin-bottom: 14px
+        }
+
+        .form-label {
+            display: block;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 8px
+        }
+
+        .form-input {
+            width: 100%;
+            height: 48px;
+            background: var(--ibg);
+            border: 1px solid var(--iborder);
+            border-radius: 10px;
+            color: var(--text);
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            padding: 0 16px;
+            outline: none;
+            transition: all .2s
+        }
+
+        .form-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(245, 158, 11, .1)
+        }
+
+        .form-input::placeholder {
+            color: var(--muted);
+            font-weight: 400
+        }
+
+        .row-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px
+        }
+
+        .info-box {
+            background: rgba(245, 158, 11, .05);
+            border: 1px solid rgba(245, 158, 11, .15);
+            border-radius: 12px;
+            padding: 14px 16px;
+            font-size: 13px;
+            color: var(--muted);
+            line-height: 1.6;
+            margin-bottom: 14px
+        }
+
+        .info-box strong {
+            color: var(--accent)
+        }
+
+        .crypto-addr {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            background: rgba(0, 0, 0, .4);
+            border: 1px solid var(--iborder);
+            border-radius: 8px;
+            padding: 12px;
+            word-break: break-all;
+            color: var(--text);
+            cursor: pointer;
+            transition: background .2s
+        }
+
+        .crypto-addr:hover {
+            background: rgba(245, 158, 11, .06)
+        }
+
+        /* Resumen */
+        .resumen-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 32px;
+            position: sticky;
+            top: 84px
+        }
+
+        .res-title {
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 20px
+        }
+
+        .res-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 14px;
+            margin-bottom: 12px
+        }
+
+        .res-row .label {
+            color: var(--muted)
+        }
+
+        .res-row .value {
+            font-weight: 600
+        }
+
+        .res-divider {
+            height: 1px;
+            background: var(--border);
+            margin: 16px 0
+        }
+
+        .res-total {
+            display: flex;
+            justify-content: space-between;
+            align-items: center
+        }
+
+        .res-total .tl {
+            font-size: 15px;
+            font-weight: 700
+        }
+
+        .res-total .tv {
+            font-size: 24px;
+            font-weight: 900;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent)
+        }
+
+        .res-safe {
+            font-size: 11px;
+            color: var(--muted);
+            margin-top: 16px;
+            line-height: 1.6;
+            display: flex;
+            align-items: flex-start;
+            gap: 5px
+        }
+
+        /* Alert */
+        .alert {
+            display: none;
+            padding: 12px 14px;
+            border-radius: 10px;
+            font-size: 13px;
+            margin-bottom: 16px;
+            border: 1px solid;
+            line-height: 1.5;
+            align-items: center;
+            gap: 10px
+        }
+
+        .alert.show {
+            display: flex;
+            animation: fu .3s ease
+        }
+
+        .alert.error {
+            background: rgba(239, 68, 68, .07);
+            border-color: rgba(239, 68, 68, .2);
+            color: #fca5a5
+        }
+
+        .alert.success {
+            background: rgba(34, 197, 94, .07);
+            border-color: rgba(34, 197, 94, .2);
+            color: #86efac
+        }
+
+        /* Botón pagar */
+        .btn-pagar {
+            width: 100%;
+            height: 52px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, var(--accent), #d97706);
+            border: none;
+            color: #050a10;
+            font-family: 'Outfit', sans-serif;
+            font-size: 15px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all .25s;
+            box-shadow: 0 6px 24px rgba(245, 158, 11, .25);
+            margin-top: 20px
+        }
+
+        .btn-pagar:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 32px rgba(245, 158, 11, .35)
+        }
+
+        .btn-pagar:disabled {
+            opacity: .5;
+            cursor: not-allowed;
+            transform: none
+        }
+
+        /* Success overlay */
+        .success-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(5, 10, 16, .97);
+            z-index: 999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .5s
+        }
+
+        .success-overlay.show {
+            opacity: 1;
+            pointer-events: all
+        }
+
+        .success-icon {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: rgba(34, 197, 94, .15);
+            border: 2px solid var(--green);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 36px;
+            color: var(--green);
+            animation: pop .5s .2s both
+        }
+
+        .success-title {
+            font-size: 32px;
+            font-weight: 900;
+            letter-spacing: -1px;
+            text-align: center
+        }
+
+        .success-sub {
+            font-size: 15px;
+            color: var(--muted);
+            text-align: center;
+            max-width: 380px;
+            line-height: 1.6
+        }
+
+        .page-footer {
+            margin-top: 28px;
+            font-size: 12px;
+            color: var(--muted);
+            text-align: center;
+            z-index: 1;
+            position: relative
+        }
+
+        .page-footer a {
+            color: var(--muted);
+            text-decoration: none
+        }
+
+        .page-footer a:hover {
+            color: var(--text)
+        }
+
+        @keyframes fu {
+            from {
+                opacity: 0;
+                transform: translateY(8px)
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0)
+            }
+        }
+
+        @keyframes pop {
+            from {
+                transform: scale(0)
+            }
+
+            to {
+                transform: scale(1)
+            }
+        }
+
+        @media(max-width:700px) {
+            .pago-wrap {
+                grid-template-columns: 1fr
+            }
+
+            .resumen-card {
+                position: static
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- OVERLAY ÉXITO -->
+    <div class="success-overlay" id="successOverlay">
+        <div class="success-icon">✓</div>
+        <div class="success-title">¡Registro Completado!</div>
+        <div class="success-sub">Tu pre-registro fue recibido. Te contactaremos en las próximas 24h para confirmarte el
+            acceso.</div>
+    </div>
+
+    <!-- NAVBAR -->
+    <nav class="navbar">
+        <a class="nav-logo" href="landing.html">
+            <div class="nav-logo-icon">DT</div>
+            <span class="nav-logo-text">DONTRADING Pro</span>
+        </a>
+        <a class="nav-back" href="registro.html">← Volver</a>
+    </nav>
+
+    <!-- PASOS -->
+    <div class="steps">
+        <div class="step done">
+            <div class="step-num">✓</div><span>Tus datos</span>
+        </div>
+        <div class="step-sep"></div>
+        <div class="step active">
+            <div class="step-num">2</div><span>Pago</span>
+        </div>
+        <div class="step-sep"></div>
+        <div class="step">
+            <div class="step-num">3</div><span>Confirmación</span>
+        </div>
+    </div>
+
+    <div class="pago-wrap">
+        <!-- PANEL IZQUIERDO: método de pago -->
+        <div class="pago-card">
+            <div class="card-title">Método de pago</div>
+
+            <div class="alert" id="alertBox"><span id="alertIcon"></span><span id="alertText"></span></div>
+
+            <!-- Tabs -->
+            <div class="pay-tabs">
+                <button class="pay-tab active" data-tab="card">💳 Tarjeta</button>
+                <button class="pay-tab" data-tab="crypto">₿ Crypto</button>
+                <button class="pay-tab" data-tab="transfer">🏦 Transferencia</button>
+            </div>
+
+            <!-- Tarjeta -->
+            <div class="pay-panel show" id="panel-card">
+                <div class="form-group">
+                    <label class="form-label">Número de tarjeta</label>
+                    <input class="form-input" type="text" placeholder="0000 0000 0000 0000" maxlength="19" id="cardNum">
+                </div>
+                <div class="row-2">
+                    <div class="form-group">
+                        <label class="form-label">Vencimiento</label>
+                        <input class="form-input" type="text" placeholder="MM/AA" maxlength="5" id="cardExp">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">CVC</label>
+                        <input class="form-input" type="text" placeholder="123" maxlength="4" id="cardCvc">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Nombre en la tarjeta</label>
+                    <input class="form-input" type="text" placeholder="Como aparece en la tarjeta" id="cardName">
+                </div>
+            </div>
+
+            <!-- Crypto -->
+            <div class="pay-panel" id="panel-crypto">
+                <div class="info-box">Envía el pago exacto a la dirección de <strong>USDT (TRC-20)</strong> o
+                    <strong>Bitcoin</strong> indicada. El acceso se activará tras 1 confirmación de red.</div>
+                <div class="form-group">
+                    <label class="form-label">USDT TRC-20</label>
+                    <div class="crypto-addr" id="usdtAddr" title="Clic para copiar">TXyz...dirección-wallet-TRC20-aquí
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Bitcoin (BTC)</label>
+                    <div class="crypto-addr" id="btcAddr" title="Clic para copiar">bc1q...dirección-bitcoin-aquí</div>
+                </div>
+                <div class="info-box" style="margin-top:4px">Una vez enviado el pago, haz clic en <strong>"Confirmar
+                        pago"</strong> para notificarnos.</div>
+            </div>
+
+            <!-- Transferencia -->
+            <div class="pay-panel" id="panel-transfer">
+                <div class="info-box">Realiza tu transferencia a la siguiente cuenta y envíanos el comprobante por
+                    WhatsApp.</div>
+                <div class="form-group">
+                    <label class="form-label">Banco</label>
+                    <input class="form-input" type="text" value="BBVA / BANORTE" readonly
+                        style="opacity:.6;cursor:default">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Cuenta / CLABE</label>
+                    <div class="crypto-addr" id="clabe" title="Clic para copiar">000000000000000000</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Titular</label>
+                    <input class="form-input" type="text" value="DONTRADING S.A. DE C.V." readonly
+                        style="opacity:.6;cursor:default">
+                </div>
+            </div>
+
+            <button class="btn-pagar" id="btnPagar">Confirmar pago →</button>
+        </div>
+
+        <!-- RESUMEN -->
+        <div class="resumen-card">
+            <div class="res-title">Resumen del pedido</div>
+            <div class="res-row"><span class="label">Plan</span><span class="value" id="resPlan">—</span></div>
+            <div class="res-row"><span class="label">Nombre</span><span class="value" id="resNombre">—</span></div>
+            <div class="res-row"><span class="label">Correo</span><span class="value" id="resEmail"
+                    style="font-size:12px">—</span></div>
+            <div class="res-divider"></div>
+            <div class="res-total">
+                <span class="tl">Total</span>
+                <span class="tv" id="resTotal">—</span>
+            </div>
+            <div class="res-safe">🔒 Pago seguro. Activación manual en 24h hábiles. Sin cargos automáticos.</div>
+        </div>
+    </div>
+
+    <div class="page-footer" style="margin-top:24px">
+        <a href="landing.html">DONTRADING Pro</a> © 2026 · <a href="#">Términos</a> · <a href="#">Privacidad</a>
+    </div>
+
+    <script>
+        /* ── Leer datos de registro ── */
+        const nombre = sessionStorage.getItem('dt_nombre') || '—';
+        const email = sessionStorage.getItem('dt_email') || '—';
+        const planRaw = sessionStorage.getItem('dt_plan') || 'mensual|49';
+        const [planNombre, planPrecio] = planRaw.split('|');
+
+        document.getElementById('resPlan').textContent = planNombre.charAt(0).toUpperCase() + planNombre.slice(1);
+        document.getElementById('resNombre').textContent = nombre;
+        document.getElementById('resEmail').textContent = email;
+        document.getElementById('resTotal').textContent = `$${planPrecio} USD`;
+
+        /* ── Tabs de pago ── */
+        let activeTab = 'card';
+        document.querySelectorAll('.pay-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.pay-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.pay-panel').forEach(p => p.classList.remove('show'));
+                tab.classList.add('active');
+                activeTab = tab.dataset.tab;
+                document.getElementById(`panel-${activeTab}`).classList.add('show');
+            });
+        });
+
+        /* ── Copiar al portapapeles ── */
+        document.querySelectorAll('.crypto-addr').forEach(el => {
+            el.addEventListener('click', () => {
+                navigator.clipboard.writeText(el.textContent.trim()).then(() => {
+                    const orig = el.textContent;
+                    el.textContent = '¡Copiado!';
+                    setTimeout(() => { el.textContent = orig; }, 1500);
+                });
+            });
+        });
+
+        /* ── Formateo de tarjeta ── */
+        const cardNum = document.getElementById('cardNum');
+        if (cardNum) {
+            cardNum.addEventListener('input', () => {
+                cardNum.value = cardNum.value.replace(/\D/g, '').replace(/(.{4})/g, '$1 ').trim();
+            });
+        }
+        const cardExp = document.getElementById('cardExp');
+        if (cardExp) {
+            cardExp.addEventListener('input', () => {
+                cardExp.value = cardExp.value.replace(/\D/g, '').replace(/(\d{2})(\d)/, '$1/$2');
+            });
+        }
+
+        /* ── Alert ── */
+        const alertBox = document.getElementById('alertBox');
+        function showAlert(msg, type) {
+            alertBox.className = `alert show ${type}`;
+            document.getElementById('alertIcon').textContent = type === 'error' ? '✕' : '✓';
+            document.getElementById('alertText').textContent = msg;
+        }
+
+        /* ── Confirmar pago ── */
+        document.getElementById('btnPagar').addEventListener('click', async () => {
+            const btn = document.getElementById('btnPagar');
+
+            if (activeTab === 'card') {
+                const num = document.getElementById('cardNum').value.replace(/\s/g, '');
+                const exp = document.getElementById('cardExp').value;
+                const cvc = document.getElementById('cardCvc').value;
+                const name = document.getElementById('cardName').value.trim();
+                if (num.length < 15) { showAlert('Número de tarjeta inválido.', 'error'); return; }
+                if (!exp.includes('/')) { showAlert('Fecha de vencimiento inválida.', 'error'); return; }
+                if (cvc.length < 3) { showAlert('CVC inválido.', 'error'); return; }
+                if (!name) { showAlert('Ingresa el nombre de la tarjeta.', 'error'); return; }
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Procesando...';
+
+            /* Simulación — reemplaza con tu pasarela de pago real */
+            await new Promise(r => setTimeout(r, 2000));
+
+            sessionStorage.clear();
+            document.getElementById('successOverlay').classList.add('show');
+        });
+    </script>
+</body>
+
+</html>
