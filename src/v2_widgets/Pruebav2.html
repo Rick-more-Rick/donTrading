@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MarketDepth Widgets Modular</title>
+
+    <!-- Fuentes -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Outfit:wght@300;400;600;700&display=swap');
+    </style>
+
+    <!-- Estilos v2 -->
+    <link rel="stylesheet" href="./estilos_v2.css">
+</head>
+
+<body class="v2-body">
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         LAYOUT PRINCIPAL — CSS Grid
+         ═══════════════════════════════════════════════════════════════════ -->
+    <div class="v2-app">
+
+        <!-- ── CABECERA: Logo + Selector de Activos ── -->
+        <div class="v2-panel-cabecera">
+            <div class="v2-logo">MarketDepth<span>v2</span></div>
+            <div class="v2-separador-vertical"></div>
+            <!-- Widget: Selector de Activos se monta aquí -->
+            <div id="mount-selector-activos"></div>
+        </div>
+
+        <!-- ── BARRA DE TIMEFRAME ── -->
+        <div class="v2-panel-tiempo">
+            <!-- Widget: Selector de Tiempo se monta aquí -->
+            <div id="mount-selector-tiempo"></div>
+        </div>
+
+        <!-- Área de gráfica: Velas (izquierda) + Eje de precio (derecha) -->
+        <div class="v2-panel-grafica">
+            <!-- Canvas principal de velas -->
+            <div id="mount-grafica-velas" class="v2-grafica-wrap"></div>
+            <!-- Eje de precio Y (columna derecha, compartida con la gráfica) -->
+            <div id="mount-grafica-eje" class="v2-grafica-eje-wrap"></div>
+        </div>
+
+        <!-- ── PANEL ORDER BOOK (derecha) ── -->
+        <div class="v2-panel-orderbook">
+            <!-- Widget: Libro de Órdenes se monta aquí -->
+            <div id="mount-orderbook"></div>
+        </div>
+
+        <!-- ── BARRA DE MÉTRICAS (pie) ── -->
+        <div class="v2-panel-metricas">
+            <div class="v2-metrica">
+                <span class="v2-metrica-label">Símbolo:</span>
+                <span class="v2-metrica-valor" id="metrica-simbolo">—</span>
+            </div>
+            <div class="v2-metrica">
+                <span class="v2-metrica-label">Timeframe:</span>
+                <span class="v2-metrica-valor" id="metrica-timeframe">1m</span>
+            </div>
+            <div class="v2-metrica">
+                <span class="v2-metrica-label">Ticks:</span>
+                <span class="v2-metrica-valor" id="metrica-ticks">0</span>
+            </div>
+            <div class="v2-metrica">
+                <span class="v2-metrica-label">Spread:</span>
+                <span class="v2-metrica-valor" id="metrica-spread">—</span>
+            </div>
+            <div class="v2-estado-conexion">
+                <div class="v2-estado-punto conectando" id="estado-punto-chart"></div>
+                <span class="v2-estado-texto" id="estado-texto-chart">Chart: Conectando...</span>
+                <div class="v2-estado-punto conectando" id="estado-punto-book" style="margin-left: 12px;"></div>
+                <span class="v2-estado-texto" id="estado-texto-book">OB: Conectando...</span>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         MÓDULOS JS v2 — Orden de carga por dependencias
+         ═══════════════════════════════════════════════════════════════════ -->
+
+    <!-- 1. Base: Sistema de eventos + Clase base -->
+    <script src="./ClaseBaseWidget.js"></script>
+
+    <!-- 2. Configuración: Catálogo de mercados + Factory -->
+    <script src="./FabricaWidgets.js"></script>
+
+    <!-- 3. Motores internos de la gráfica (sin dependencias externas) -->
+    <script src="./motores_chart.js"></script>
+
+    <!-- 4. Widgets concretos -->
+    <script src="./WidgetSelectorActivos.js"></script>
+    <script src="./WidgetSelectorTiempo.js"></script>
+    <!-- WidgetLibroOrdenes es ahora autónomo — NO requiere MotorOrderBook.js -->
+    <script src="./WidgetLibroOrdenes.js"></script>
+    <script src="./WidgetGraficaVelas.js"></script>
+    <script src="./WidgetGraficaEje.js"></script>
+    <script src="./GestorWidgets.js"></script>
+
+    <!-- 5. Script de inicialización -->
+    <script>
+        // ══════════════════════════════════════════════════════════════════════
+        //  INICIALIZACIÓN DE LA APLICACIÓN v2
+        // ══════════════════════════════════════════════════════════════════════
+        (function iniciarAppV2() {
+            'use strict';
+
+            console.log('╔══════════════════════════════════════════════════════╗');
+            console.log('║  MarketDepth v2 — Arquitectura de Widgets Modular   ║');
+            console.log('╚══════════════════════════════════════════════════════╝');
+
+            // ── 1. Instanciar widgets en sus contenedores ──
+
+            const selectorActivos = FabricaWidgets.crear(
+                'selector_activos',
+                document.getElementById('mount-selector-activos'),
+                { simboloInicial: 'AAPL' }
+            );
+
+            const selectorTiempo = FabricaWidgets.crear(
+                'selector_tiempo',
+                document.getElementById('mount-selector-tiempo'),
+                { timeframeInicial: 60 }
+            );
+
+            // WidgetLibroOrdenes: autónomo, gestiona su propio WS a :8766
+            const libroOrdenes = FabricaWidgets.crear(
+                'libro_ordenes',
+                document.getElementById('mount-orderbook'),
+                {
+                    simbolo: 'AAPL',
+                    host: 'localhost',
+                    puertoBook: 8766,
+                }
+            );
+
+            // ── Gráfica de velas + Eje de precio ──
+            const graficaVelas = FabricaWidgets.crear(
+                'grafica_velas',
+                document.getElementById('mount-grafica-velas'),
+                { simbolo: 'AAPL', timeframe: 60, precision: 2 }
+            );
+
+            const graficaEje = FabricaWidgets.crear(
+                'grafica_eje',
+                document.getElementById('mount-grafica-eje'),
+                {}
+            );
+
+            // Compartir el SharedPriceState entre velas y eje
+            graficaVelas.vincularEje(graficaEje);
+
+            // ── 2. Iniciar el Gestor Central (solo chart :8765) ──
+
+            const gestor = new GestorWidgets({
+                host: 'localhost',
+                puertoChart: 8765,
+            });
+            gestor.iniciar();
+
+            // ── 3. Escuchar eventos para actualizar la barra de métricas ──
+
+            // Actualizar símbolo activo
+            busEventos.suscribir(EVENTOS.CAMBIO_ACTIVO, (datos) => {
+                document.getElementById('metrica-simbolo').textContent = datos.simbolo;
+            });
+
+            // Actualizar timeframe
+            busEventos.suscribir(EVENTOS.CAMBIO_TIMEFRAME, (datos) => {
+                document.getElementById('metrica-timeframe').textContent = datos.etiqueta;
+            });
+
+            // Actualizar spread: leído directamente desde el book del widget
+            // (ya no viene de DATOS_BOOK en el bus — el widget lo procesa internamente)
+            // Se mantiene el display vacío hasta que el book envíe datos
+
+            // Contador de ticks
+            let contadorTicksUI = 0;
+            busEventos.suscribir(EVENTOS.DATOS_TICK, () => {
+                contadorTicksUI++;
+                document.getElementById('metrica-ticks').textContent =
+                    contadorTicksUI.toLocaleString();
+            });
+
+            // Resetear contador + spread al cambiar activo
+            busEventos.suscribir(EVENTOS.CAMBIO_ACTIVO, () => {
+                contadorTicksUI = 0;
+                document.getElementById('metrica-ticks').textContent = '0';
+                document.getElementById('metrica-spread').textContent = '—';
+            });
+
+            // Estado de conexión del Chart
+            busEventos.suscribir(EVENTOS.CONEXION_ESTADO, (datos) => {
+                if (datos.tipo !== 'chart') return;
+                const punto = document.getElementById('estado-punto-chart');
+                const texto = document.getElementById('estado-texto-chart');
+                if (!punto) return;
+                punto.className = 'v2-estado-punto';
+                if (datos.estado === 'conectado') {
+                    punto.classList.add('conectado');
+                    texto.textContent = 'Chart: Conectado';
+                } else if (datos.estado === 'conectando') {
+                    punto.classList.add('conectando');
+                    texto.textContent = 'Chart: Conectando...';
+                } else {
+                    punto.classList.add('desconectado');
+                    texto.textContent = 'Chart: Desconectado';
+                }
+            });
+
+            // Estado de conexión del Order Book (emitido directamente por WidgetLibroOrdenes
+            // a través de su estado visual interno — aquí solo lo reflejamos en métricas)
+            // Para mantener indicador OB en la barra inferior, el widget emite su propio estado:
+            busEventos.suscribir(EVENTOS.CONEXION_ESTADO, (datos) => {
+                if (datos.tipo !== 'book') return;
+                const punto = document.getElementById('estado-punto-book');
+                const texto = document.getElementById('estado-texto-book');
+                if (!punto) return;
+                punto.className = 'v2-estado-punto';
+                if (datos.estado === 'conectado') {
+                    punto.classList.add('conectado');
+                    texto.textContent = 'OB: Conectado';
+                } else if (datos.estado === 'conectando') {
+                    punto.classList.add('conectando');
+                    texto.textContent = 'OB: Conectando...';
+                } else {
+                    punto.classList.add('desconectado');
+                    texto.textContent = 'OB: Desconectado';
+                }
+            });
+
+            // ── 4. Disparar selección inicial del activo ──
+            // (Activa la suscripción del chart y del order book al símbolo inicial)
+            setTimeout(() => {
+                busEventos.emitir(EVENTOS.CAMBIO_ACTIVO, {
+                    simbolo: 'AAPL',
+                    mercado: 'DOW',
+                    configuracion: FabricaWidgets.obtenerConfiguracion('AAPL'),
+                });
+            }, 500);
+
+            // ── 5. Exponer al scope global para debugging ──
+            window.__v2 = {
+                busEventos,
+                gestor,
+                selectorActivos,
+                selectorTiempo,
+                libroOrdenes,
+                graficaVelas,
+                graficaEje,
+                EVENTOS,
+                FabricaWidgets,
+            };
+
+            console.log('[App v2] ✅ Iniciada correctamente.');
+            console.log('[App v2] Debug: window.__v2 contiene todas las referencias.');
+            console.log('[App v2] WebSockets: ws://localhost:8765 (chart) | ws://localhost:8766 (book — gestionado por WidgetLibroOrdenes)');
+
+        })();
+    </script>
+
+</body>
+
+</html>

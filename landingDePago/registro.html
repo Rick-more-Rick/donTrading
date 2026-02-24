@@ -1,0 +1,1138 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DONTRADING — Pre-Registro</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
+
+    <!-- Supabase SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
+    <!-- Widget partículas -->
+    <script>
+        window.IconsWidgetOptions = { countMin: 25, countMax: 55, repelRadius: 90, connectDist: 110, lineOpacity: 0.05 };
+    </script>
+    <script src="icons-widget.js"></script>
+
+    <style>
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0
+        }
+
+        :root {
+            --bg: #050a10;
+            --accent: #f59e0b;
+            --accent2: #fbbf24;
+            --green: #22c55e;
+            --text: #f1f5f9;
+            --muted: #64748b;
+            --border: rgba(255, 255, 255, .06);
+            --card: rgba(255, 255, 255, .03);
+            --ibg: rgba(0, 0, 0, .35);
+            --iborder: rgba(255, 255, 255, .08);
+        }
+
+        html {
+            scroll-behavior: smooth
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 88px 20px 60px;
+        }
+
+        /* ── NAVBAR ── */
+        .navbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 5%;
+            height: 64px;
+            background: rgba(5, 10, 16, .92);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .nav-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+            color: var(--text)
+        }
+
+        .nav-logo-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 9px;
+            background: linear-gradient(135deg, var(--accent), #d97706);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 13px;
+            color: #050a10;
+        }
+
+        .nav-logo-text {
+            font-weight: 800;
+            font-size: 16px
+        }
+
+        .nav-back {
+            font-size: 13px;
+            color: var(--muted);
+            text-decoration: none;
+            transition: color .2s
+        }
+
+        .nav-back:hover {
+            color: var(--text)
+        }
+
+        /* ── CABECERA ── */
+        .page-header {
+            text-align: center;
+            margin-bottom: 40px;
+            position: relative;
+            z-index: 1;
+            animation: fadeUp .6s ease both;
+        }
+
+        .page-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            background: rgba(245, 158, 11, .09);
+            border: 1px solid rgba(245, 158, 11, .2);
+            border-radius: 100px;
+            padding: 5px 14px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: var(--accent);
+            margin-bottom: 16px;
+        }
+
+        .page-title {
+            font-size: 28px;
+            font-weight: 900;
+            letter-spacing: -0.5px;
+            margin-bottom: 8px
+        }
+
+        .page-sub {
+            font-size: 14px;
+            color: var(--muted)
+        }
+
+        /* ── CARD PRINCIPAL ── */
+        .reg-card {
+            width: 100%;
+            max-width: 580px;
+            position: relative;
+            z-index: 1;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 28px;
+            padding: 40px 36px;
+            animation: fadeUp .6s .1s ease both;
+        }
+
+        .reg-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 20%;
+            right: 20%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--accent), transparent);
+            opacity: .35;
+        }
+
+        /* ── SECCIÓN PLAN ── */
+        .section-title {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 16px;
+        }
+
+        .plan-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 32px
+        }
+
+        .plan-opt {
+            border: 1px solid var(--iborder);
+            border-radius: 16px;
+            padding: 18px 16px;
+            cursor: pointer;
+            transition: all .2s;
+            background: var(--ibg);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .plan-opt:hover {
+            border-color: rgba(255, 255, 255, .18)
+        }
+
+        .plan-opt.selected {
+            border-color: var(--accent);
+            background: rgba(245, 158, 11, .07)
+        }
+
+        .plan-opt.selected::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(245, 158, 11, .05), transparent);
+        }
+
+        .plan-badge {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            border-radius: 100px;
+            padding: 2px 10px;
+            margin-bottom: 10px;
+        }
+
+        .plan-badge.mensual {
+            background: rgba(255, 255, 255, .06);
+            color: var(--muted)
+        }
+
+        .plan-badge.anual {
+            background: rgba(34, 197, 94, .12);
+            color: var(--green)
+        }
+
+        .plan-price {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 26px;
+            font-weight: 700;
+            color: var(--text)
+        }
+
+        .plan-price sup {
+            font-size: 14px;
+            vertical-align: super
+        }
+
+        .plan-price span {
+            font-size: 13px;
+            font-weight: 400;
+            color: var(--muted)
+        }
+
+        .plan-name {
+            font-size: 13px;
+            color: var(--muted);
+            margin-top: 4px
+        }
+
+        .plan-save {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--green);
+            margin-top: 6px;
+            display: none;
+        }
+
+        .plan-opt.selected .plan-save {
+            display: block
+        }
+
+        .plan-check {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            border: 1.5px solid var(--iborder);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            transition: all .2s;
+        }
+
+        .plan-opt.selected .plan-check {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #050a10;
+        }
+
+        /* ── FORMULARIO ── */
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin-bottom: 14px
+        }
+
+        .form-group {
+            margin-bottom: 14px
+        }
+
+        .form-label {
+            display: block;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+
+        .form-input {
+            width: 100%;
+            height: 48px;
+            background: var(--ibg);
+            border: 1px solid var(--iborder);
+            border-radius: 10px;
+            color: var(--text);
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            padding: 0 16px;
+            outline: none;
+            transition: all .2s;
+        }
+
+        .form-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(245, 158, 11, .1)
+        }
+
+        .form-input::placeholder {
+            color: var(--muted);
+            font-weight: 400
+        }
+
+        .form-input.error {
+            border-color: rgba(239, 68, 68, .5);
+            box-shadow: 0 0 0 3px rgba(239, 68, 68, .08)
+        }
+
+        /* ── MÉTODO DE PAGO ── */
+        .pay-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 28px
+        }
+
+        .pay-opt {
+            border: 1px solid var(--iborder);
+            border-radius: 14px;
+            padding: 16px 14px;
+            cursor: pointer;
+            transition: all .2s;
+            background: var(--ibg);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            text-align: center;
+        }
+
+        .pay-opt:hover {
+            border-color: rgba(255, 255, 255, .18)
+        }
+
+        .pay-opt.selected {
+            border-color: var(--accent);
+            background: rgba(245, 158, 11, .07)
+        }
+
+        .pay-icon {
+            font-size: 28px;
+            line-height: 1
+        }
+
+        .pay-name {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text)
+        }
+
+        .pay-desc {
+            font-size: 11px;
+            color: var(--muted);
+            line-height: 1.4
+        }
+
+        /* ── FOTO ID ── */
+        .id-section {
+            margin-bottom: 28px
+        }
+
+        .id-area {
+            border: 1.5px dashed var(--iborder);
+            border-radius: 16px;
+            padding: 28px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all .25s;
+            background: var(--ibg);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .id-area:hover {
+            border-color: rgba(245, 158, 11, .35);
+            background: rgba(245, 158, 11, .03)
+        }
+
+        .id-area.has-file {
+            border-style: solid;
+            border-color: var(--green);
+            background: rgba(34, 197, 94, .04)
+        }
+
+        .id-icon {
+            font-size: 36px;
+            margin-bottom: 10px;
+            opacity: .5
+        }
+
+        .id-title {
+            font-size: 14px;
+            font-weight: 700;
+            margin-bottom: 5px
+        }
+
+        .id-subtitle {
+            font-size: 12px;
+            color: var(--muted);
+            line-height: 1.5
+        }
+
+        .id-preview {
+            width: 100%;
+            max-height: 200px;
+            object-fit: cover;
+            border-radius: 10px;
+            display: none;
+            margin-top: 12px;
+        }
+
+        .id-preview.show {
+            display: block
+        }
+
+        .id-filename {
+            font-size: 11px;
+            color: var(--green);
+            font-weight: 600;
+            margin-top: 8px;
+            display: none;
+        }
+
+        .id-filename.show {
+            display: block
+        }
+
+        input[type="file"] {
+            display: none
+        }
+
+        /* Botones de cámara / archivo */
+        .id-btns {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-top: 14px
+        }
+
+        .id-btn {
+            height: 36px;
+            padding: 0 16px;
+            border-radius: 8px;
+            border: 1px solid var(--iborder);
+            background: rgba(255, 255, 255, .04);
+            color: var(--text);
+            font-family: 'Outfit', sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all .2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .id-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent)
+        }
+
+        /* Cámara modal */
+        .cam-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(5, 10, 16, .95);
+            z-index: 200;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+        }
+
+        .cam-modal.show {
+            display: flex
+        }
+
+        .cam-title {
+            font-size: 18px;
+            font-weight: 700
+        }
+
+        .cam-video {
+            width: min(500px, 90vw);
+            aspect-ratio: 16/10;
+            border-radius: 16px;
+            background: #000;
+            object-fit: cover;
+            border: 1px solid var(--border);
+        }
+
+        .cam-actions {
+            display: flex;
+            gap: 12px
+        }
+
+        .cam-btn {
+            height: 48px;
+            padding: 0 24px;
+            border-radius: 12px;
+            border: none;
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all .2s;
+        }
+
+        .cam-capture {
+            background: var(--accent);
+            color: #050a10
+        }
+
+        .cam-capture:hover {
+            background: var(--accent2)
+        }
+
+        .cam-cancel {
+            background: rgba(255, 255, 255, .07);
+            color: var(--text);
+            border: 1px solid var(--iborder)
+        }
+
+        .cam-cancel:hover {
+            border-color: rgba(255, 255, 255, .25)
+        }
+
+        /* ── ALERTA ── */
+        .alert {
+            display: none;
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 13px;
+            margin-bottom: 20px;
+            border: 1px solid;
+            line-height: 1.5;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .alert.show {
+            display: flex;
+            animation: fadeUp .3s ease
+        }
+
+        .alert.error {
+            background: rgba(239, 68, 68, .07);
+            border-color: rgba(239, 68, 68, .2);
+            color: #fca5a5
+        }
+
+        .alert.success {
+            background: rgba(34, 197, 94, .07);
+            border-color: rgba(34, 197, 94, .2);
+            color: #86efac
+        }
+
+        .alert.warning {
+            background: rgba(245, 158, 11, .07);
+            border-color: rgba(245, 158, 11, .2);
+            color: #fde68a
+        }
+
+        /* ── BOTÓN ENVIAR ── */
+        .btn-submit {
+            width: 100%;
+            height: 56px;
+            border-radius: 14px;
+            background: linear-gradient(135deg, var(--accent), #d97706);
+            border: none;
+            color: #050a10;
+            font-family: 'Outfit', sans-serif;
+            font-size: 16px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all .25s;
+            box-shadow: 0 8px 28px rgba(245, 158, 11, .25);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-submit:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 36px rgba(245, 158, 11, .35)
+        }
+
+        .btn-submit:disabled {
+            opacity: .5;
+            cursor: not-allowed;
+            transform: none
+        }
+
+        .btn-submit .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(5, 10, 16, .3);
+            border-top-color: #050a10;
+            border-radius: 50%;
+            animation: spin .7s linear infinite;
+            display: none;
+        }
+
+        .btn-submit.loading .btn-label {
+            display: none
+        }
+
+        .btn-submit.loading .spinner {
+            display: block
+        }
+
+        /* ── DIVIDER ── */
+        .divider {
+            height: 1px;
+            background: var(--border);
+            margin: 28px 0
+        }
+
+        /* ── SEGURIDAD ── */
+        .security-note {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            justify-content: center;
+            font-size: 11px;
+            color: var(--muted);
+            margin-top: 16px;
+        }
+
+        /* ── SUCCESS OVERLAY ── */
+        .success-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(5, 10, 16, .97);
+            z-index: 999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .5s;
+        }
+
+        .success-overlay.show {
+            opacity: 1;
+            pointer-events: all
+        }
+
+        .success-icon {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: rgba(34, 197, 94, .12);
+            border: 2px solid var(--green);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 36px;
+            color: var(--green);
+            animation: popIn .5s .1s both;
+        }
+
+        .success-title {
+            font-size: 28px;
+            font-weight: 900;
+            letter-spacing: -0.5px;
+            text-align: center
+        }
+
+        .success-sub {
+            font-size: 14px;
+            color: var(--muted);
+            text-align: center;
+            max-width: 360px;
+            line-height: 1.7
+        }
+
+        .success-ref {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--accent);
+            background: rgba(245, 158, 11, .08);
+            border: 1px solid rgba(245, 158, 11, .15);
+            border-radius: 8px;
+            padding: 8px 16px;
+        }
+
+        /* ── KEYFRAMES ── */
+        @keyframes fadeUp {
+            from {
+                opacity: 0;
+                transform: translateY(16px)
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0)
+            }
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg)
+            }
+        }
+
+        @keyframes popIn {
+            from {
+                transform: scale(0)
+            }
+
+            to {
+                transform: scale(1)
+            }
+        }
+
+        @media(max-width:520px) {
+            .reg-card {
+                padding: 28px 20px
+            }
+
+            .plan-grid,
+            .form-grid,
+            .pay-grid {
+                grid-template-columns: 1fr
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- OVERLAY ÉXITO -->
+    <div class="success-overlay" id="successOverlay">
+        <div class="success-icon">✓</div>
+        <div class="success-title">¡Registro Enviado!</div>
+        <div class="success-sub">Recibimos tu solicitud. En las próximas <strong>24–48 horas hábiles</strong> te
+            contactaremos por correo para completar tu acceso.</div>
+        <div class="success-ref" id="successRef">REF: —</div>
+    </div>
+
+    <!-- MODAL CÁMARA -->
+    <div class="cam-modal" id="camModal">
+        <div class="cam-title">📷 &nbsp;Toma una foto de tu ID</div>
+        <video class="cam-video" id="camVideo" autoplay playsinline muted></video>
+        <div class="cam-actions">
+            <button class="cam-btn cam-capture" id="camCapture">Capturar foto</button>
+            <button class="cam-btn cam-cancel" id="camCancel">Cancelar</button>
+        </div>
+        <canvas id="camCanvas" style="display:none"></canvas>
+    </div>
+
+    <!-- NAVBAR -->
+    <nav class="navbar">
+        <a class="nav-logo" href="index.html">
+            <div class="nav-logo-icon">DT</div>
+            <span class="nav-logo-text">DONTRADING Pro</span>
+        </a>
+        <a class="nav-back" href="index.html">← Volver</a>
+    </nav>
+
+    <!-- CABECERA -->
+    <div class="page-header">
+        <div class="page-badge">🔐 Registro exclusivo</div>
+        <div class="page-title">Solicita tu acceso a DONTRADING</div>
+        <div class="page-sub">Completa el formulario. Tu información es 100% privada y segura.</div>
+    </div>
+
+    <!-- CARD PRINCIPAL -->
+    <div class="reg-card">
+
+        <!-- ALERTA -->
+        <div class="alert" id="alertBox">
+            <span id="alertIcon">⚠</span>
+            <span id="alertMsg">—</span>
+        </div>
+
+        <!-- ①  PLAN -->
+        <div class="section-title">① Elige tu plan</div>
+        <div class="plan-grid">
+            <div class="plan-opt selected" data-plan="mensual" data-precio="49" id="planMensual">
+                <div class="plan-check">✓</div>
+                <div class="plan-badge mensual">Mensual</div>
+                <div class="plan-price"><sup>$</sup>49<span>/mes</span></div>
+                <div class="plan-name">Facturación mensual</div>
+                <div class="plan-save">—</div>
+            </div>
+            <div class="plan-opt" data-plan="anual" data-precio="399" id="planAnual">
+                <div class="plan-check">✓</div>
+                <div class="plan-badge anual">Anual ⭐</div>
+                <div class="plan-price"><sup>$</sup>399<span>/año</span></div>
+                <div class="plan-name">Facturación anual</div>
+                <div class="plan-save">Ahorras $189 USD (32% off)</div>
+            </div>
+        </div>
+
+        <!-- ②  DATOS PERSONALES -->
+        <div class="section-title">② Tus datos</div>
+        <div class="form-grid">
+            <div class="form-group">
+                <label class="form-label" for="nombre">Nombre completo</label>
+                <input class="form-input" type="text" id="nombre" placeholder="Tu nombre completo" autocomplete="name">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="telefono">Teléfono / WhatsApp</label>
+                <input class="form-input" type="tel" id="telefono" placeholder="+52 55 1234 5678" autocomplete="tel">
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="email">Correo electrónico</label>
+            <input class="form-input" type="email" id="email" placeholder="tu@correo.com" autocomplete="email">
+        </div>
+
+        <!-- ③  MÉTODO DE PAGO -->
+        <div class="divider"></div>
+        <div class="section-title">③ Método de pago preferido</div>
+        <div class="pay-grid">
+            <div class="pay-opt selected" data-metodo="paypal" id="payPaypal">
+                <div class="pay-icon">🅿️</div>
+                <div class="pay-name">PayPal</div>
+                <div class="pay-desc">Pago seguro con saldo PayPal o tarjeta a través de PayPal</div>
+            </div>
+            <div class="pay-opt" data-metodo="crypto" id="payCrypto">
+                <div class="pay-icon">₿</div>
+                <div class="pay-name">Crypto</div>
+                <div class="pay-desc">USDT (TRC-20), Bitcoin o cualquier cripto acordada</div>
+            </div>
+        </div>
+
+        <!-- ④  IDENTIFICACIÓN OFICIAL -->
+        <div class="divider"></div>
+        <div class="section-title">④ Foto de identificación oficial</div>
+        <div class="id-section">
+            <div class="id-area" id="idArea">
+                <div class="id-icon">🪪</div>
+                <div class="id-title">Sube o toma una foto de tu ID</div>
+                <div class="id-subtitle">INE, Pasaporte o cualquier identificación oficial vigente.<br>Solo para
+                    verificación interna de seguridad.</div>
+                <img class="id-preview" id="idPreview" alt="Vista previa de tu ID">
+                <div class="id-filename" id="idFilename"></div>
+            </div>
+            <div class="id-btns">
+                <button class="id-btn" id="btnCamera">📷 Usar cámara</button>
+                <button class="id-btn" id="btnFile">📁 Subir archivo</button>
+            </div>
+            <input type="file" id="fileInput" accept="image/*">
+        </div>
+
+        <!-- BOTÓN ENVIAR -->
+        <button class="btn-submit" id="btnSubmit">
+            <span class="btn-label">Enviar solicitud →</span>
+            <span class="spinner"></span>
+        </button>
+
+        <div class="security-note">
+            🔒 &nbsp;Datos cifrados · Supabase Secure Storage · Solo uso interno
+        </div>
+    </div>
+
+    <script>
+        // ══════════════════════════════════════════════════════════════
+        //  SUPABASE CONFIG
+        // ══════════════════════════════════════════════════════════════
+        const SUPABASE_URL = 'https://iagipcgwgtmmnklkkqyb.supabase.co';
+        const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhZ2lwY2d3Z3RtbW5rbGtrcXliIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEwODQzMzYsImV4cCI6MjA4NjY2MDMzNn0.XaINUxGQAInQ3lw_xCRZ4ZAiBwKNjelFqvJUUuLvPsc';
+        const BUCKET = 'identificaciones';
+
+        const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+        // ── Estado global ──
+        let selectedPlan = 'mensual';
+        let selectedPrecio = 49;
+        let selectedMetodo = 'paypal';
+        let idFile = null;   // File object de la foto
+
+        // ══════════════════════════════════════════════════════════════
+        //  PLAN SELECTOR
+        // ══════════════════════════════════════════════════════════════
+        document.querySelectorAll('.plan-opt').forEach(opt => {
+            opt.addEventListener('click', () => {
+                document.querySelectorAll('.plan-opt').forEach(o => o.classList.remove('selected'));
+                opt.classList.add('selected');
+                selectedPlan = opt.dataset.plan;
+                selectedPrecio = parseFloat(opt.dataset.precio);
+            });
+        });
+
+        // ══════════════════════════════════════════════════════════════
+        //  MÉTODO DE PAGO SELECTOR
+        // ══════════════════════════════════════════════════════════════
+        document.querySelectorAll('.pay-opt').forEach(opt => {
+            opt.addEventListener('click', () => {
+                document.querySelectorAll('.pay-opt').forEach(o => o.classList.remove('selected'));
+                opt.classList.add('selected');
+                selectedMetodo = opt.dataset.metodo;
+            });
+        });
+
+        // ══════════════════════════════════════════════════════════════
+        //  FOTO DE ID — ARCHIVO
+        // ══════════════════════════════════════════════════════════════
+        const fileInput = document.getElementById('fileInput');
+        const idArea = document.getElementById('idArea');
+        const idPreview = document.getElementById('idPreview');
+        const idFilename = document.getElementById('idFilename');
+
+        document.getElementById('btnFile').addEventListener('click', () => fileInput.click());
+        idArea.addEventListener('click', () => fileInput.click());
+
+        fileInput.addEventListener('change', e => {
+            const file = e.target.files[0];
+            if (!file) return;
+            setIdFile(file);
+        });
+
+        // Drag & Drop
+        idArea.addEventListener('dragover', e => { e.preventDefault(); idArea.style.borderColor = 'var(--accent)'; });
+        idArea.addEventListener('dragleave', () => { idArea.style.borderColor = ''; });
+        idArea.addEventListener('drop', e => {
+            e.preventDefault();
+            idArea.style.borderColor = '';
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('image/')) setIdFile(file);
+        });
+
+        function setIdFile(file) {
+            idFile = file;
+            const reader = new FileReader();
+            reader.onload = ev => {
+                idPreview.src = ev.target.result;
+                idPreview.classList.add('show');
+            };
+            reader.readAsDataURL(file);
+            idFilename.textContent = '✓  ' + file.name;
+            idFilename.classList.add('show');
+            idArea.classList.add('has-file');
+            idArea.querySelector('.id-icon').textContent = '✅';
+            idArea.querySelector('.id-title').textContent = 'Foto lista';
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        //  FOTO DE ID — CÁMARA
+        // ══════════════════════════════════════════════════════════════
+        const camModal = document.getElementById('camModal');
+        const camVideo = document.getElementById('camVideo');
+        const camCanvas = document.getElementById('camCanvas');
+        const camCapture = document.getElementById('camCapture');
+        const camCancel = document.getElementById('camCancel');
+        let camStream = null;
+
+        document.getElementById('btnCamera').addEventListener('click', async () => {
+            try {
+                camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+                camVideo.srcObject = camStream;
+                camModal.classList.add('show');
+            } catch (err) {
+                showAlert('No se pudo acceder a la cámara. Usa la opción "Subir archivo".', 'warning');
+            }
+        });
+
+        camCapture.addEventListener('click', () => {
+            camCanvas.width = camVideo.videoWidth;
+            camCanvas.height = camVideo.videoHeight;
+            camCanvas.getContext('2d').drawImage(camVideo, 0, 0);
+            camCanvas.toBlob(blob => {
+                const file = new File([blob], `id-cam-${Date.now()}.jpg`, { type: 'image/jpeg' });
+                setIdFile(file);
+                closeCam();
+            }, 'image/jpeg', 0.92);
+        });
+
+        camCancel.addEventListener('click', closeCam);
+        function closeCam() {
+            if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+            camModal.classList.remove('show');
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        //  ALERT HELPER
+        // ══════════════════════════════════════════════════════════════
+        const alertBox = document.getElementById('alertBox');
+        function showAlert(msg, type = 'error') {
+            alertBox.className = `alert show ${type}`;
+            document.getElementById('alertIcon').textContent = type === 'error' ? '✕' : type === 'success' ? '✓' : '⚠';
+            document.getElementById('alertMsg').textContent = msg;
+            alertBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        function hideAlert() { alertBox.classList.remove('show'); }
+
+        // ══════════════════════════════════════════════════════════════
+        //  DETECTAR IP Y DISPOSITIVO
+        // ══════════════════════════════════════════════════════════════
+        async function getClientIP() {
+            try {
+                const res = await fetch('https://api.ipify.org?format=json');
+                const data = await res.json();
+                return data.ip || 'desconocida';
+            } catch { return 'desconocida'; }
+        }
+
+        function getDeviceType() {
+            const ua = navigator.userAgent.toLowerCase();
+            return /android|iphone|ipad|ipod|mobile|tablet/i.test(ua) ? 'mobile' : 'web';
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        //  ENVÍO DEL FORMULARIO
+        // ══════════════════════════════════════════════════════════════
+        document.getElementById('btnSubmit').addEventListener('click', handleSubmit);
+
+        async function handleSubmit() {
+            hideAlert();
+
+            // ── Validación ──
+            const nombre = document.getElementById('nombre').value.trim();
+            const email = document.getElementById('email').value.trim();
+            const telefono = document.getElementById('telefono').value.trim();
+
+            if (!nombre) { showAlert('El nombre es obligatorio.'); markError('nombre'); return; }
+            if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                showAlert('Ingresa un correo válido.'); markError('email'); return;
+            }
+            if (!idFile) {
+                showAlert('Por favor adjunta una foto de tu identificación oficial.', 'warning'); return;
+            }
+
+            // ── UI: loading ──
+            const btn = document.getElementById('btnSubmit');
+            btn.classList.add('loading');
+            btn.disabled = true;
+
+            try {
+                // 1. Obtener IP y dispositivo
+                const [ip, dispositivo] = await Promise.all([getClientIP(), Promise.resolve(getDeviceType())]);
+
+                // 2. Subir foto al bucket de Supabase Storage
+                const ext = idFile.name.split('.').pop() || 'jpg';
+                const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+                const filePath = `ids/${fileName}`;
+
+                const { error: uploadErr } = await db.storage
+                    .from(BUCKET)
+                    .upload(filePath, idFile, { cacheControl: '3600', upsert: false });
+
+                if (uploadErr) throw new Error('Error subiendo identificación: ' + uploadErr.message);
+
+                // 3. Obtener URL firmada (privada, 10 años)
+                const { data: urlData } = db.storage.from(BUCKET).getPublicUrl(filePath);
+                const id_foto_url = urlData?.publicUrl || filePath;
+
+                // 4. Insertar registro en tabla
+                const { data: insertData, error: insertErr } = await db
+                    .from('registros')
+                    .insert([{
+                        nombre,
+                        email,
+                        telefono: telefono || null,
+                        plan: selectedPlan,
+                        precio_usd: selectedPrecio,
+                        metodo_pago: selectedMetodo,
+                        id_foto_url,
+                        ip_address: ip,
+                        dispositivo,
+                        user_agent: navigator.userAgent.substring(0, 500),
+                    }])
+                    .select('id')
+                    .single();
+
+                if (insertErr) throw new Error('Error guardando registro: ' + insertErr.message);
+
+                // 5. Éxito — mostrar overlay
+                const ref = (insertData?.id || '—').substring(0, 8).toUpperCase();
+                document.getElementById('successRef').textContent = `REF: ${ref}`;
+                document.getElementById('successOverlay').classList.add('show');
+
+            } catch (err) {
+                console.error('[DONTRADING] Error en registro:', err);
+                showAlert('Ocurrió un error: ' + err.message + '\n\nSi el problema persiste escríbenos al WhatsApp.', 'error');
+                btn.classList.remove('loading');
+                btn.disabled = false;
+            }
+        }
+
+        function markError(fieldId) {
+            const el = document.getElementById(fieldId);
+            el.classList.add('error');
+            el.addEventListener('input', () => el.classList.remove('error'), { once: true });
+            el.focus();
+        }
+    </script>
+</body>
+
+</html>

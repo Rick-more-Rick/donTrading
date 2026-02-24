@@ -1,0 +1,964 @@
+/*
+ * ╔══════════════════════════════════════════════════════════════════════════╗
+ * ║  estilos_v2.css — Layout de la interfaz modular de widgets v2          ║
+ * ╠══════════════════════════════════════════════════════════════════════════╣
+ * ║  Estructura:                                                            ║
+ * ║    ┌─────────────────────────────────────────────────────────┐          ║
+ * ║    │  CABECERA: Selector Activos + Selector Tiempo           │          ║
+ * ║    ├───────────────────────────────────────┬─────────────────┤          ║
+ * ║    │                                       │                 │          ║
+ * ║    │           GRÁFICA                     │   ORDER BOOK    │          ║
+ * ║    │       (placeholder)                   │                 │          ║
+ * ║    │                                       │                 │          ║
+ * ║    ├───────────────────────────────────────┴─────────────────┤          ║
+ * ║    │  BARRA DE MÉTRICAS                                      │          ║
+ * ║    └─────────────────────────────────────────────────────────┘          ║
+ * ╚══════════════════════════════════════════════════════════════════════════╝
+ */
+
+/* ══════════════════════════════════════════════════════════════════════════
+   VARIABLES GLOBALES
+   ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+    --v2-bg-primario: #0a0e17;
+    --v2-bg-secundario: #111827;
+    --v2-bg-panel: #151d2e;
+    --v2-borde: #1e293b;
+    --v2-texto: #e2e8f0;
+    --v2-texto-sec: #94a3b8;
+    --v2-texto-muted: #475569;
+    --v2-verde: #22c55e;
+    --v2-rojo: #ef4444;
+    --v2-azul: #3b82f6;
+    --v2-ambar: #f59e0b;
+    --v2-cyan: #06b6d4;
+    --v2-fuente-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    --v2-fuente-ui: 'Outfit', 'Inter', -apple-system, sans-serif;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   RESET Y BASE
+   ══════════════════════════════════════════════════════════════════════════ */
+
+*,
+*::before,
+*::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body.v2-body {
+    font-family: var(--v2-fuente-mono);
+    background: var(--v2-bg-primario);
+    color: var(--v2-texto);
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   LAYOUT PRINCIPAL — CSS Grid
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-app {
+    display: grid;
+    grid-template-rows: auto auto 1fr auto;
+    grid-template-columns: 1fr 300px;
+    grid-template-areas:
+        "cabecera   cabecera"
+        "tiempo     tiempo"
+        "grafica    orderbook"
+        "metricas   metricas";
+    height: 100vh;
+    width: 100vw;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   CABECERA — Selector de Mercados y Activos
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-panel-cabecera {
+    grid-area: cabecera;
+    background: var(--v2-bg-secundario);
+    border-bottom: 1px solid var(--v2-borde);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 52px;
+}
+
+.v2-logo {
+    font-family: var(--v2-fuente-ui);
+    font-weight: 700;
+    font-size: 16px;
+    color: var(--v2-cyan);
+    letter-spacing: -0.5px;
+    margin-right: 8px;
+    white-space: nowrap;
+}
+
+.v2-logo span {
+    color: var(--v2-texto-muted);
+    font-weight: 300;
+}
+
+.v2-separador-vertical {
+    width: 1px;
+    height: 28px;
+    background: var(--v2-borde);
+}
+
+/* ── Selector de Activos (dentro de cabecera) ── */
+
+.v2-selector-activos {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+}
+
+.v2-fila-mercados {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.v2-mercado-contenedor {
+    position: relative;
+}
+
+.v2-btn-mercado {
+    font-family: var(--v2-fuente-mono);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border: 1px solid var(--v2-borde);
+    border-radius: 6px;
+    background: var(--v2-bg-panel);
+    color: var(--v2-texto-sec);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    letter-spacing: 0.5px;
+}
+
+.v2-btn-mercado:hover {
+    border-color: var(--v2-azul);
+    color: var(--v2-texto);
+    background: rgba(59, 130, 246, 0.08);
+}
+
+.v2-btn-mercado.expandido {
+    border-color: var(--v2-azul);
+    color: var(--v2-azul);
+    background: rgba(59, 130, 246, 0.15);
+}
+
+/* ── Dropdown de activos ── */
+
+/* ── Dropdown de activos — contenedor principal ── */
+
+.v2-dropdown-activos {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 240px;
+    max-width: 320px;
+    background: var(--v2-bg-panel);
+    border: 1px solid var(--v2-borde);
+    border-radius: 8px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+    z-index: 200;
+    overflow: hidden;
+    display: none;
+    /* JS cambia a flex al abrir */
+    flex-direction: column;
+    max-height: 400px;
+}
+
+/* ── Buscador pegado arriba ── */
+
+.v2-buscador-wrap {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--v2-borde);
+    background: var(--v2-bg-secundario);
+    flex-shrink: 0;
+}
+
+.v2-buscador-input {
+    width: 100%;
+    background: var(--v2-bg-primario);
+    border: 1px solid var(--v2-borde);
+    border-radius: 5px;
+    padding: 5px 10px;
+    font-family: var(--v2-fuente-mono);
+    font-size: 11px;
+    color: var(--v2-texto);
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.v2-buscador-input:focus {
+    border-color: var(--v2-azul);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.v2-buscador-input::placeholder {
+    color: var(--v2-texto-muted);
+}
+
+/* ── Lista scrollable ── */
+
+.v2-dropdown-lista {
+    overflow-y: auto;
+    overflow-x: hidden;
+    flex: 1;
+    min-height: 0;
+    max-height: 340px;
+    scroll-behavior: smooth;
+}
+
+/* ── Ítems de la lista ── */
+
+.v2-dropdown-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 7px 14px;
+    cursor: pointer;
+    transition: background 0.1s;
+    border-bottom: 1px solid rgba(30, 41, 59, 0.4);
+    gap: 8px;
+}
+
+.v2-dropdown-item:last-child {
+    border-bottom: none;
+}
+
+.v2-dropdown-item:hover {
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.v2-dropdown-item.activo {
+    background: rgba(59, 130, 246, 0.15);
+    border-left: 3px solid var(--v2-azul);
+}
+
+.v2-item-simbolo {
+    font-family: var(--v2-fuente-mono);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--v2-texto);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.v2-item-nombre {
+    font-size: 10px;
+    color: var(--v2-texto-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: right;
+    flex: 1;
+}
+
+/* ── Sin resultados ── */
+
+.v2-dropdown-vacio {
+    padding: 16px;
+    text-align: center;
+    font-size: 11px;
+    color: var(--v2-texto-muted);
+    font-style: italic;
+}
+
+/* ── Scrollbar de la lista ── */
+
+.v2-dropdown-lista::-webkit-scrollbar {
+    width: 4px;
+}
+
+.v2-dropdown-lista::-webkit-scrollbar-track {
+    background: var(--v2-bg-panel);
+}
+
+.v2-dropdown-lista::-webkit-scrollbar-thumb {
+    background: var(--v2-borde);
+    border-radius: 2px;
+}
+
+.v2-dropdown-lista::-webkit-scrollbar-thumb:hover {
+    background: var(--v2-texto-muted);
+}
+
+/* ── Indicador del activo seleccionado ── */
+
+.v2-activo-indicador {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+    padding: 4px 12px;
+    background: var(--v2-bg-panel);
+    border: 1px solid var(--v2-borde);
+    border-radius: 6px;
+}
+
+.v2-indicador-simbolo {
+    font-family: var(--v2-fuente-ui);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--v2-texto);
+}
+
+.v2-indicador-nombre {
+    font-size: 11px;
+    color: var(--v2-texto-sec);
+}
+
+.v2-indicador-mercado {
+    font-size: 9px;
+    color: var(--v2-texto-muted);
+    padding: 2px 6px;
+    background: rgba(59, 130, 246, 0.1);
+    border-radius: 4px;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BARRA DE TIMEFRAME
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-panel-tiempo {
+    grid-area: tiempo;
+    background: var(--v2-bg-primario);
+    border-bottom: 1px solid var(--v2-borde);
+    padding: 4px 16px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 36px;
+}
+
+.v2-selector-tiempo {
+    display: flex;
+    gap: 4px;
+}
+
+.v2-btn-timeframe {
+    font-family: var(--v2-fuente-mono);
+    font-size: 11px;
+    padding: 4px 14px;
+    border: 1px solid var(--v2-borde);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--v2-texto-sec);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.v2-btn-timeframe:hover {
+    border-color: var(--v2-azul);
+    color: var(--v2-texto);
+}
+
+.v2-btn-timeframe.activo {
+    background: rgba(59, 130, 246, 0.15);
+    border-color: var(--v2-azul);
+    color: var(--v2-azul);
+}
+
+
+
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PANEL ORDER BOOK (derecha)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-panel-orderbook {
+    grid-area: orderbook;
+    background: var(--v2-bg-secundario);
+    border-left: 1px solid var(--v2-borde);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-width: 280px;
+}
+
+.v2-libro-ordenes {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.v2-ob-cabecera {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--v2-borde);
+    min-height: 32px;
+}
+
+.v2-ob-titulo {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--v2-texto-sec);
+}
+
+.v2-ob-simbolo {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--v2-cyan);
+}
+
+.v2-ob-canvas {
+    flex: 1;
+    width: 100%;
+    display: block;
+}
+
+.v2-ob-pie {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 12px;
+    border-top: 1px solid var(--v2-borde);
+    font-size: 9px;
+    color: var(--v2-texto-muted);
+    min-height: 24px;
+    align-items: center;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BARRA DE MÉTRICAS (pie)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-panel-metricas {
+    grid-area: metricas;
+    background: var(--v2-bg-secundario);
+    border-top: 1px solid var(--v2-borde);
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    min-height: 28px;
+    font-size: 11px;
+}
+
+.v2-metrica {
+    display: flex;
+    gap: 6px;
+}
+
+.v2-metrica-label {
+    color: var(--v2-texto-muted);
+}
+
+.v2-metrica-valor {
+    color: var(--v2-texto-sec);
+}
+
+.v2-estado-conexion {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.v2-estado-punto {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    transition: all 0.3s;
+}
+
+.v2-estado-punto.conectado {
+    background: var(--v2-verde);
+    box-shadow: 0 0 6px var(--v2-verde);
+}
+
+.v2-estado-punto.conectando {
+    background: var(--v2-ambar);
+    animation: v2-pulso 1s infinite;
+}
+
+.v2-estado-punto.desconectado {
+    background: var(--v2-rojo);
+}
+
+.v2-estado-texto {
+    font-size: 10px;
+    color: var(--v2-texto-muted);
+}
+
+@keyframes v2-pulso {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.3;
+    }
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SCROLLBAR PERSONALIZADO (para dropdowns)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-dropdown-activos::-webkit-scrollbar {
+    width: 4px;
+}
+
+.v2-dropdown-activos::-webkit-scrollbar-track {
+    background: var(--v2-bg-panel);
+}
+
+.v2-dropdown-activos::-webkit-scrollbar-thumb {
+    background: var(--v2-borde);
+    border-radius: 2px;
+}
+
+.v2-dropdown-activos::-webkit-scrollbar-thumb:hover {
+    background: var(--v2-texto-muted);
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PANEL DE GRÁFICA — Layout general
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-panel-grafica {
+    grid-area: grafica;
+    background: var(--v2-bg-primario);
+    display: flex;
+    flex-direction: row;
+    overflow: hidden;
+    position: relative;
+}
+
+/* Contenedor principal del widget (flex column: toolbar + zona + eje-tiempo) */
+.v2-grafica-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    /* necesario en Firefox para que flex-grow funcione en columna */
+}
+
+/* Zona del canvas (ocupa todo el espacio disponible) */
+.v2-grafica-zona {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    min-height: 0;
+}
+
+/* Canvas apilados — velas debajo, crosshair encima */
+.v2-canvas-velas,
+.v2-canvas-crosshair {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.v2-canvas-crosshair {
+    cursor: crosshair;
+    z-index: 2;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TOOLBAR INTERNA (PAUSA / RESET)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-toolbar-grafica {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid var(--v2-borde);
+    border-radius: 8px;
+    padding: 4px 8px;
+    backdrop-filter: blur(6px);
+}
+
+.v2-grafica-titulo {
+    font-family: var(--v2-fuente-ui);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--v2-texto);
+    letter-spacing: 0.5px;
+    padding-right: 8px;
+}
+
+.v2-btn-toolbar {
+    font-size: 13px;
+    padding: 4px 8px;
+    border: 1px solid var(--v2-borde);
+    border-radius: 5px;
+    background: transparent;
+    color: var(--v2-texto-sec);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.v2-btn-toolbar:hover {
+    background: var(--v2-bg-panel);
+    color: var(--v2-texto);
+    border-color: var(--v2-azul);
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TOOLTIP OHLCV
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-grafica-tooltip {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 10;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    background: rgba(15, 23, 42, 0.88);
+    border: 1px solid var(--v2-borde);
+    border-radius: 6px;
+    padding: 4px 10px;
+    backdrop-filter: blur(4px);
+    pointer-events: none;
+}
+
+.v2-tt-hora {
+    font-size: 10px;
+    color: var(--v2-texto-muted);
+    font-family: var(--v2-fuente-mono);
+}
+
+.v2-tt-dato {
+    font-size: 11px;
+    font-family: var(--v2-fuente-mono);
+    font-weight: 500;
+}
+
+.v2-tt-dato.alza {
+    color: var(--v2-verde);
+}
+
+.v2-tt-dato.baja {
+    color: var(--v2-rojo);
+}
+
+.v2-tt-vol {
+    font-size: 10px;
+    color: var(--v2-texto-muted);
+    font-family: var(--v2-fuente-mono);
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   EJE DE TIEMPO (barra inferior del canvas)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-eje-tiempo {
+    height: 22px;
+    background: var(--v2-bg-secundario);
+    border-top: 1px solid var(--v2-borde);
+    position: relative;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.v2-etq-tiempo {
+    position: absolute;
+    transform: translateX(-50%);
+    font-family: var(--v2-fuente-mono);
+    font-size: 9px;
+    color: var(--v2-texto-muted);
+    top: 4px;
+    white-space: nowrap;
+    user-select: none;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BANNER "BOLSA CERRADA"
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-banner-cerrada {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: rgba(10, 14, 23, 0.82);
+    backdrop-filter: blur(8px);
+    pointer-events: none;
+}
+
+.v2-banner-icono {
+    font-size: 42px;
+    line-height: 1;
+    filter: drop-shadow(0 0 16px rgba(239, 68, 68, 0.5));
+}
+
+.v2-banner-titulo {
+    font-family: var(--v2-fuente-ui);
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--v2-rojo);
+    letter-spacing: 1px;
+}
+
+.v2-banner-sub {
+    font-size: 12px;
+    color: var(--v2-ambar);
+    font-family: var(--v2-fuente-mono);
+}
+
+.v2-banner-nota {
+    font-size: 11px;
+    color: var(--v2-texto-muted);
+    margin-top: 4px;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BANNER "PAUSA MANUAL"
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-banner-pausa {
+    position: absolute;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 15;
+    display: none;
+    align-items: center;
+    gap: 8px;
+    background: rgba(15, 23, 42, 0.90);
+    border: 1px solid var(--v2-ambar);
+    border-radius: 8px;
+    padding: 6px 14px;
+    backdrop-filter: blur(4px);
+    pointer-events: none;
+}
+
+.v2-banner-pausa-icono {
+    font-size: 16px;
+    color: var(--v2-ambar);
+}
+
+.v2-banner-pausa-txt {
+    font-size: 12px;
+    font-family: var(--v2-fuente-ui);
+    font-weight: 600;
+    color: var(--v2-ambar);
+    letter-spacing: 0.5px;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   EJE DE PRECIO Y (columna derecha — WidgetGraficaEje)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-grafica-eje-wrap {
+    width: 65px;
+    flex-shrink: 0;
+    background: var(--v2-bg-secundario);
+    border-left: 1px solid var(--v2-borde);
+    position: relative;
+    overflow: hidden;
+}
+
+.v2-canvas-eje {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   OVERLAY DE CARGA (mientras llega el histórico de Polygon)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-overlay-loading {
+    position: absolute;
+    inset: 0;
+    z-index: 25;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: rgba(10, 14, 23, 0.80);
+    backdrop-filter: blur(6px);
+    pointer-events: none;
+}
+
+.v2-loading-spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid rgba(59, 130, 246, 0.25);
+    border-top-color: var(--v2-azul);
+    border-radius: 50%;
+    animation: v2-spin 0.75s linear infinite;
+}
+
+@keyframes v2-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.v2-loading-simbolo {
+    font-family: var(--v2-fuente-ui);
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--v2-texto);
+    letter-spacing: 1px;
+}
+
+.v2-loading-texto {
+    font-size: 11px;
+    color: var(--v2-texto-muted);
+    font-family: var(--v2-fuente-mono);
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TÍTULO PROMINENTE DEL ACTIVO EN LA TOOLBAR DE GRÁFICA
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Bloque que agrupa símbolo + timeframe */
+.v2-grafica-bloque-simbolo {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding-right: 10px;
+    border-right: 1px solid var(--v2-borde);
+    margin-right: 6px;
+}
+
+/* Símbolo grande (ej: "AAPL") */
+.v2-grafica-titulo {
+    font-family: var(--v2-fuente-ui);
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--v2-texto);
+    letter-spacing: 0.5px;
+}
+
+/* Etiqueta del timeframe al lado del símbolo (ej: "1m") */
+.v2-grafica-subtitulo-tf {
+    font-family: var(--v2-fuente-mono);
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--v2-azul);
+    background: rgba(59, 130, 246, 0.12);
+    border: 1px solid rgba(59, 130, 246, 0.25);
+    border-radius: 3px;
+    padding: 1px 5px;
+    letter-spacing: 0.3px;
+}
+
+
+/* Bloque precio actual + cambio% (junto al ticker en toolbar) */
+.v2-grafica-precio-info {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    padding: 0 10px;
+    border-right: 1px solid var(--v2-borde);
+    margin-right: 4px;
+}
+
+.v2-precio-valor {
+    font-family: var(--v2-fuente-mono);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--v2-texto);
+    letter-spacing: 0.3px;
+}
+
+.v2-precio-cambio {
+    font-family: var(--v2-fuente-mono);
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--v2-texto-muted);
+    white-space: nowrap;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BADGE DE SESIÓN DE MERCADO (toolbar de la gráfica)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.v2-badge-sesion {
+    font-family: var(--v2-fuente-mono);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid currentColor;
+    letter-spacing: 0.4px;
+    white-space: nowrap;
+    transition: color 0.3s, background 0.3s;
+    /* Estado inicial (cargando) */
+    color: var(--v2-texto-muted);
+    background: transparent;
+}
+
+/* ── Regular (mercado en horario normal) */
+.v2-badge-sesion.sesion-regular {
+    color: #22c55e;
+    background: rgba(34, 197, 94, 0.10);
+    border-color: rgba(34, 197, 94, 0.35);
+}
+
+/* ── Pre-Market (antes de apertura) */
+.v2-badge-sesion.sesion-pre {
+    color: #60a5fa;
+    background: rgba(96, 165, 250, 0.10);
+    border-color: rgba(96, 165, 250, 0.35);
+}
+
+/* ── After Hours (post-cierre) */
+.v2-badge-sesion.sesion-after {
+    color: #fb923c;
+    background: rgba(251, 146, 60, 0.10);
+    border-color: rgba(251, 146, 60, 0.35);
+}
+
+/* ── Cerrado (fin de semana o fuera de horario) */
+.v2-badge-sesion.sesion-cerrado {
+    color: #6b7280;
+    background: rgba(107, 114, 128, 0.10);
+    border-color: rgba(107, 114, 128, 0.30);
+}

@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DONTRADING — Próximamente</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <script>
+        window.IconsWidgetOptions = { countMin: 30, countMax: 60, repelRadius: 100, connectDist: 120, lineOpacity: 0.04 };
+    </script>
+    <script src="icons-widget.js"></script>
+    <style>
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --bg: #050a10;
+            --accent: #f59e0b;
+            --accent2: #fbbf24;
+            --green: #22c55e;
+            --text: #f1f5f9;
+            --muted: #64748b;
+            --border: rgba(255, 255, 255, .06);
+        }
+
+        html,
+        body {
+            height: 100%;
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            overflow: hidden;
+        }
+
+        /* ── FONDO EXPLOSIÓN ── */
+        .explosion-bg {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Anillos de onda */
+        .ring {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            border-radius: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            border: 1px solid rgba(245, 158, 11, .15);
+            animation: expandRing var(--dur, 5s) var(--delay, 0s) ease-out infinite;
+        }
+
+        .ring:nth-child(1) {
+            width: 300px;
+            height: 300px;
+            --dur: 5s;
+            --delay: 0s;
+            border-color: rgba(245, 158, 11, .20);
+        }
+
+        .ring:nth-child(2) {
+            width: 520px;
+            height: 520px;
+            --dur: 5s;
+            --delay: .8s;
+            border-color: rgba(245, 158, 11, .12);
+        }
+
+        .ring:nth-child(3) {
+            width: 780px;
+            height: 780px;
+            --dur: 5s;
+            --delay: 1.6s;
+            border-color: rgba(245, 158, 11, .07);
+        }
+
+        .ring:nth-child(4) {
+            width: 1100px;
+            height: 1100px;
+            --dur: 5s;
+            --delay: 2.4s;
+            border-color: rgba(245, 158, 11, .04);
+        }
+
+        .ring:nth-child(5) {
+            width: 1500px;
+            height: 1500px;
+            --dur: 5s;
+            --delay: 3.2s;
+            border-color: rgba(245, 158, 11, .02);
+        }
+
+        @keyframes expandRing {
+            0% {
+                transform: translate(-50%, -50%) scale(0);
+                opacity: 1;
+            }
+
+            100% {
+                transform: translate(-50%, -50%) scale(1);
+                opacity: 0;
+            }
+        }
+
+        /* Destellos radiales */
+        .burst {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 2px;
+            background: linear-gradient(to top, var(--accent), transparent);
+            transform-origin: bottom center;
+            transform: translate(-50%, -100%) rotate(var(--rot));
+            animation: burstFlash 3.5s var(--bdelay, 0s) ease-out infinite;
+        }
+
+        @keyframes burstFlash {
+            0% {
+                height: 0;
+                opacity: 0;
+            }
+
+            10% {
+                height: 180px;
+                opacity: .7;
+            }
+
+            60% {
+                height: 240px;
+                opacity: .15;
+            }
+
+            100% {
+                height: 0;
+                opacity: 0;
+            }
+        }
+
+        /* Núcleo/bomba central */
+        .core-wrap {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        .core {
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 38% 35%, #fde68a, var(--accent) 40%, #b45309 80%, #050a10);
+            box-shadow:
+                0 0 60px 20px rgba(245, 158, 11, .35),
+                0 0 120px 40px rgba(245, 158, 11, .15),
+                0 0 200px 80px rgba(245, 158, 11, .07);
+            animation: corePulse 2.8s ease-in-out infinite;
+            position: relative;
+        }
+
+        .core::before {
+            content: 'DT';
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 36px;
+            font-weight: 900;
+            color: #050a10;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, .4);
+        }
+
+        @keyframes corePulse {
+
+            0%,
+            100% {
+                box-shadow: 0 0 60px 20px rgba(245, 158, 11, .35), 0 0 120px 40px rgba(245, 158, 11, .15), 0 0 200px 80px rgba(245, 158, 11, .07);
+                transform: scale(1);
+            }
+
+            50% {
+                box-shadow: 0 0 80px 30px rgba(245, 158, 11, .55), 0 0 160px 60px rgba(245, 158, 11, .25), 0 0 280px 100px rgba(245, 158, 11, .1);
+                transform: scale(1.04);
+            }
+        }
+
+        /* ── CONTENIDO ── */
+        .page {
+            position: relative;
+            z-index: 10;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0;
+            padding: 20px;
+            text-align: center;
+        }
+
+        /* Espacio para el núcleo */
+        .core-spacer {
+            height: 180px;
+            flex-shrink: 0;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(245, 158, 11, .1);
+            border: 1px solid rgba(245, 158, 11, .25);
+            border-radius: 100px;
+            padding: 5px 16px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: var(--accent);
+            margin-bottom: 20px;
+            animation: fadeUp .6s ease both;
+        }
+
+        .badge .dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--accent);
+            animation: blink 1.4s ease infinite;
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: .25;
+            }
+        }
+
+        .main-title {
+            font-size: clamp(2.8rem, 7vw, 5.5rem);
+            font-weight: 900;
+            letter-spacing: -3px;
+            line-height: 1;
+            margin-bottom: 14px;
+            animation: fadeUp .6s .1s ease both;
+        }
+
+        .main-title .hl {
+            background: linear-gradient(135deg, var(--accent), var(--accent2), #ef4444);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            font-size: 16px;
+            color: var(--muted);
+            max-width: 480px;
+            line-height: 1.7;
+            margin-bottom: 44px;
+            animation: fadeUp .6s .2s ease both;
+        }
+
+        /* ── CONTADOR ── */
+        .countdown {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin-bottom: 44px;
+            animation: fadeUp .6s .3s ease both;
+        }
+
+        .cd-unit {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .cd-box {
+            width: 90px;
+            height: 90px;
+            border-radius: 18px;
+            background: rgba(255, 255, 255, .04);
+            border: 1px solid rgba(255, 255, 255, .08);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Línea divisoria tipo reloj flip */
+        .cd-box::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 50%;
+            height: 1px;
+            background: rgba(0, 0, 0, .35);
+        }
+
+        .cd-box::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, rgba(245, 158, 11, .06) 0%, transparent 100%);
+        }
+
+        .cd-num {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 40px;
+            font-weight: 700;
+            color: var(--accent);
+            letter-spacing: -2px;
+            position: relative;
+            z-index: 1;
+            transition: transform .15s ease, opacity .15s ease;
+        }
+
+        .cd-num.flip {
+            transform: translateY(-8px);
+            opacity: 0;
+        }
+
+        .cd-label {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 2.5px;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        /* Separador : */
+        .cd-sep {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 40px;
+            font-weight: 300;
+            color: rgba(245, 158, 11, .3);
+            padding-top: 4px;
+            align-self: center;
+            margin-top: -24px;
+        }
+
+        /* ── PROGRESO ── */
+        .progress-wrap {
+            width: min(440px, 90vw);
+            margin-bottom: 36px;
+            animation: fadeUp .6s .4s ease both;
+        }
+
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--muted);
+            margin-bottom: 8px;
+            letter-spacing: .5px;
+        }
+
+        .progress-bar {
+            height: 6px;
+            border-radius: 100px;
+            background: rgba(255, 255, 255, .06);
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            border-radius: 100px;
+            background: linear-gradient(90deg, var(--accent), var(--accent2));
+            box-shadow: 0 0 12px rgba(245, 158, 11, .5);
+            transition: width 1s ease;
+            width: 0%;
+        }
+
+        /* ── FOOTER MINIMAL ── */
+        .page-footer {
+            font-size: 12px;
+            color: var(--muted);
+            animation: fadeUp .6s .5s ease both;
+        }
+
+        .page-footer strong {
+            color: var(--text);
+        }
+
+        /* ── KEYFRAMES ── */
+        @keyframes fadeUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @media(max-width: 540px) {
+            .cd-box {
+                width: 68px;
+                height: 68px;
+                border-radius: 14px;
+            }
+
+            .cd-num {
+                font-size: 28px;
+            }
+
+            .cd-sep {
+                font-size: 28px;
+            }
+
+            .countdown {
+                gap: 8px;
+            }
+
+            .main-title {
+                letter-spacing: -2px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- FONDO EXPLOSIÓN -->
+    <div class="explosion-bg">
+        <div class="ring"></div>
+        <div class="ring"></div>
+        <div class="ring"></div>
+        <div class="ring"></div>
+        <div class="ring"></div>
+
+        <!-- Destellos radiales (12 rayos) -->
+        <div class="burst" style="--rot:0deg;   --bdelay:0s;    height:180px"></div>
+        <div class="burst" style="--rot:30deg;  --bdelay:.3s;   height:150px"></div>
+        <div class="burst" style="--rot:60deg;  --bdelay:.6s;   height:200px"></div>
+        <div class="burst" style="--rot:90deg;  --bdelay:.1s;   height:160px"></div>
+        <div class="burst" style="--rot:120deg; --bdelay:.9s;   height:190px"></div>
+        <div class="burst" style="--rot:150deg; --bdelay:.4s;   height:155px"></div>
+        <div class="burst" style="--rot:180deg; --bdelay:.7s;   height:175px"></div>
+        <div class="burst" style="--rot:210deg; --bdelay:.2s;   height:205px"></div>
+        <div class="burst" style="--rot:240deg; --bdelay:.5s;   height:148px"></div>
+        <div class="burst" style="--rot:270deg; --bdelay:.8s;   height:185px"></div>
+        <div class="burst" style="--rot:300deg; --bdelay:.15s;  height:165px"></div>
+        <div class="burst" style="--rot:330deg; --bdelay:.65s;  height:195px"></div>
+    </div>
+
+    <!-- NÚCLEO DT -->
+    <div class="core-wrap">
+        <div class="core"></div>
+    </div>
+
+    <!-- CONTENIDO PRINCIPAL -->
+    <div class="page">
+        <!-- Espacio para que el núcleo quede encima -->
+        <div class="core-spacer"></div>
+
+        <div class="badge"><span class="dot"></span> Lanzamiento en curso</div>
+
+        <h1 class="main-title">
+            <span class="hl">Próximamente</span>
+        </h1>
+
+        <p class="subtitle">
+            Estamos afinando cada detalle para ofrecerte la mejor plataforma de trading privado.<br>
+            <strong style="color:var(--text)">El acceso estará disponible muy pronto.</strong>
+        </p>
+
+        <!-- CONTADOR REGRESIVO -->
+        <div class="countdown">
+            <div class="cd-unit">
+                <div class="cd-box"><span class="cd-num" id="cdDias">00</span></div>
+                <span class="cd-label">Días</span>
+            </div>
+            <div class="cd-sep">:</div>
+            <div class="cd-unit">
+                <div class="cd-box"><span class="cd-num" id="cdHoras">00</span></div>
+                <span class="cd-label">Horas</span>
+            </div>
+            <div class="cd-sep">:</div>
+            <div class="cd-unit">
+                <div class="cd-box"><span class="cd-num" id="cdMins">00</span></div>
+                <span class="cd-label">Minutos</span>
+            </div>
+            <div class="cd-sep">:</div>
+            <div class="cd-unit">
+                <div class="cd-box"><span class="cd-num" id="cdSegs">00</span></div>
+                <span class="cd-label">Segundos</span>
+            </div>
+        </div>
+
+        <!-- BARRA DE PROGRESO -->
+        <div class="progress-wrap">
+            <div class="progress-label">
+                <span>Progreso de lanzamiento</span>
+                <span id="pct">0%</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+        </div>
+
+        <p class="page-footer">
+            <strong>DONTRADING Pro</strong> · © 2026 · Todos los derechos reservados
+        </p>
+    </div>
+
+    <script>
+        // ══════════════════════════════════════════════════════════════
+        //  ⚙️  CONFIGURACIÓN — FECHA DE LANZAMIENTO
+        //  Cambia esta fecha para ajustar el contador.
+        //  Formato: 'YYYY-MM-DDTHH:MM:SS'  (hora local)
+        // ══════════════════════════════════════════════════════════════
+        const LAUNCH_DATE = '2026-04-01T00:00:00';
+
+        // ── Fecha de inicio (para barra de progreso) ──────────────────
+        // Pon aquí la fecha en que empezaste el desarrollo (o hoy).
+        const START_DATE = '2026-02-24T00:00:00';
+        // ══════════════════════════════════════════════════════════════
+
+        const target = new Date(LAUNCH_DATE).getTime();
+        const start = new Date(START_DATE).getTime();
+
+        const elDias = document.getElementById('cdDias');
+        const elHoras = document.getElementById('cdHoras');
+        const elMins = document.getElementById('cdMins');
+        const elSegs = document.getElementById('cdSegs');
+        const fillEl = document.getElementById('progressFill');
+        const pctEl = document.getElementById('pct');
+
+        function pad(n) { return String(Math.max(0, Math.floor(n))).padStart(2, '0'); }
+
+        function flipNumber(el, newVal) {
+            if (el.textContent === newVal) return;
+            el.classList.add('flip');
+            setTimeout(() => {
+                el.textContent = newVal;
+                el.classList.remove('flip');
+            }, 150);
+        }
+
+        function tick() {
+            const now = Date.now();
+            const diff = target - now;
+
+            if (diff <= 0) {
+                // Llegó la hora — redirigir o mostrar mensaje
+                [elDias, elHoras, elMins, elSegs].forEach(el => el.textContent = '00');
+                fillEl.style.width = '100%';
+                pctEl.textContent = '100%';
+                document.querySelector('.subtitle').innerHTML =
+                    '🎉 <strong style="color:var(--accent)">¡El momento ha llegado! Bienvenido a DONTRADING Pro.</strong>';
+                return;
+            }
+
+            const days = Math.floor(diff / 86400000);
+            const hours = Math.floor((diff % 86400000) / 3600000);
+            const mins = Math.floor((diff % 3600000) / 60000);
+            const secs = Math.floor((diff % 60000) / 1000);
+
+            flipNumber(elDias, pad(days));
+            flipNumber(elHoras, pad(hours));
+            flipNumber(elMins, pad(mins));
+            flipNumber(elSegs, pad(secs));
+
+            // Progreso
+            const total = target - start;
+            const elapsed = now - start;
+            const progress = Math.min(100, Math.max(0, (elapsed / total) * 100));
+            const pctStr = progress.toFixed(1) + '%';
+            fillEl.style.width = pctStr;
+            pctEl.textContent = Math.round(progress) + '%';
+        }
+
+        tick();
+        setInterval(tick, 1000);
+    </script>
+</body>
+
+</html>
