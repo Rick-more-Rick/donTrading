@@ -889,6 +889,33 @@ body.v2-body {
 }
 
 
+/* Bloque precio actual + cambio% (junto al ticker en toolbar) */
+.v2-grafica-precio-info {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    padding: 0 10px;
+    border-right: 1px solid var(--v2-borde);
+    margin-right: 4px;
+}
+
+.v2-precio-valor {
+    font-family: var(--v2-fuente-mono);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--v2-texto);
+    letter-spacing: 0.3px;
+}
+
+.v2-precio-cambio {
+    font-family: var(--v2-fuente-mono);
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--v2-texto-muted);
+    white-space: nowrap;
+}
+
+
 /* ══════════════════════════════════════════════════════════════════════════
    BADGE DE SESIÓN DE MERCADO (toolbar de la gráfica)
    ══════════════════════════════════════════════════════════════════════════ */

@@ -498,6 +498,7 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
             // Ocultar overlay de carga
             this._ocultarOverlayLoading();
             this._actualizarTitulo();
+            this._actualizarPrecioUI();   // mostrar precio desde el histórico
 
             // Reconstruir banderas históricas a partir de los timestamps del histórico
             // (Solo para stocks — crypto opera 24/7)
@@ -660,10 +661,22 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
         this._rawTicks.push({ time: t, value: p });
         if (this._rawTicks.length > 50000) this._rawTicks = this._rawTicks.slice(-30000);
 
+        const prevPrecio = this._precioActual;
         this._precioActual = p;
         if (!this._precioInicial) this._precioInicial = p;
         if (p > this._sessionHigh) this._sessionHigh = p;
         if (p < this._sessionLow) this._sessionLow = p;
+
+        // ── Log en consola: confirmar datos en tiempo real ──
+        // Solo loguea cada 5 ticks para no saturar la consola
+        this._tickCount = (this._tickCount || 0) + 1;
+        if (this._tickCount % 5 === 1) {
+            const cambio = prevPrecio > 0 ? (p - prevPrecio).toFixed(3) : 'n/a';
+            console.log(`[📡 ${this._simbolo}] Tick #${this._tickCount} | $${p.toFixed(2)} | Δ${cambio} | ${new Date(t * 1000).toLocaleTimeString('en-US', { timeZone: 'America/New_York' })} ET`);
+        }
+
+        // Actualizar display de precio en el toolbar
+        this._actualizarPrecioUI();
 
         this.agregador.tick(t, p);
     }
@@ -1129,6 +1142,12 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
         bar.appendChild(bloqueSimbolo);
         this._actualizarTitulo();
 
+        // ── Bloque precio en tiempo real ──
+        this._elPrecioInfo = document.createElement('div');
+        this._elPrecioInfo.className = 'v2-grafica-precio-info';
+        this._elPrecioInfo.innerHTML = '<span class="v2-precio-valor">—</span><span class="v2-precio-cambio"></span>';
+        bar.appendChild(this._elPrecioInfo);
+
         // Espaciador
         const spacer = document.createElement('span');
         spacer.style.flex = '1';
@@ -1201,6 +1220,36 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
             const tfMap = { 5: '5s', 60: '1m', 300: '5m', 900: '15m', 1800: '30m', 3600: '1H', 14400: '4H', 86400: '1D' };
             const tfLabel = tfMap[this._timeframe] || `${this._timeframe}s`;
             this._subtituloTF.textContent = tfLabel;
+        }
+    }
+
+    /**
+     * _actualizarPrecioUI — Actualiza el bloque de precio/cambio% en el toolbar.
+     * Se llama en _onTick (tiempo real) y al cargar el histórico (_onInit).
+     */
+    _actualizarPrecioUI() {
+        if (!this._elPrecioInfo) return;
+        const precio = this._precioActual;
+        if (!precio || precio <= 0) return;
+
+        const elValor = this._elPrecioInfo.querySelector('.v2-precio-valor');
+        const elCambio = this._elPrecioInfo.querySelector('.v2-precio-cambio');
+        if (!elValor || !elCambio) return;
+
+        // Formatear precio con 2 decimales (crypto puede tener más)
+        const decimales = precio >= 1000 ? 2 : precio >= 10 ? 2 : precio >= 1 ? 3 : 4;
+        elValor.textContent = '$' + precio.toFixed(decimales);
+
+        // Calcular cambio % respecto al precio de apertura de sesión
+        if (this._precioInicial > 0) {
+            const diff = precio - this._precioInicial;
+            const pct = (diff / this._precioInicial) * 100;
+            const signo = diff >= 0 ? '+' : '';
+            const positvo = diff >= 0;
+            elCambio.textContent = ` ${signo}${diff.toFixed(decimales)} (${signo}${pct.toFixed(2)}%)`;
+            elCambio.style.color = positvo ? '#22c55e' : '#ef4444';
+        } else {
+            elCambio.textContent = '';
         }
     }
 
