@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "firebase": "^12.9.0",
     "numpy": "^0.0.1",
     "pandas": "^0.0.3",
     "requests": "^0.3.0",
