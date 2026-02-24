@@ -2,11 +2,11 @@
  * ╔══════════════════════════════════════════════════════════════════════════════╗
  * ║  WidgetGraficaVelas.js — Gráfica de Velas en Tiempo Real                  ║
  * ╠══════════════════════════════════════════════════════════════════════════════╣
- * ║  Usa los motores de modules/ sin modificarlos:                              ║
- * ║    MD.SharedPriceState   → rango de precios / zoom vertical                ║
- * ║    MD.OHLCAggregator     → agrupa ticks en velas OHLC por timeframe        ║
- * ║    MD.CandleEngine       → renderiza velas, pan horizontal, zoom            ║
- * ║    MD.Crosshair          → líneas del cursor sobre la gráfica               ║
+ * ║  Motores internos (de motores_chart.js — sin dependencias externas):        ║
+ * ║    SharedPriceState  → rango de precios / zoom vertical                     ║
+ * ║    OHLCAggregator    → agrupa ticks en velas OHLC por timeframe             ║
+ * ║    CandleEngine      → renderiza velas, pan horizontal, zoom                ║
+ * ║    Crosshair         → líneas del cursor sobre la gráfica                   ║
  * ║                                                                              ║
  * ║  Características:                                                            ║
  * ║    ✓ Historial de hasta 500 velas por activo                               ║
@@ -15,13 +15,8 @@
  * ║    ✓ Pausa manual + banner de Bolsa Cerrada automático                      ║
  * ║    ✓ Cada activo tiene su propio estado aislado                             ║
  * ║    ✓ Emite CAMBIO_PRECIO para sincronizar el WidgetGraficaEje y el OB      ║
+ * ║  Dependencias: motores_chart.js (cargar antes en Pruebav2.html)             ║
  * ╚══════════════════════════════════════════════════════════════════════════════╝
- *
- * Dependencias (cargar antes en Pruebav2.html):
- *   ../../modules/EstadoPrecio.js
- *   ../../modules/AgrupadorVelas.js
- *   ../../modules/MotorVelas.js
- *   ../../modules/CursorGrafica.js
  */
 
 class WidgetGraficaVelas extends ClaseBaseWidget {
@@ -34,13 +29,13 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
         super(contenedor, configuracion);
 
         // ── Motores (instanciados al renderizar, cuando el DOM existe) ──
-        /** @type {MD.SharedPriceState} */
+        /** @type {SharedPriceState} */
         this.estadoPrecio = null;
-        /** @type {MD.OHLCAggregator} */
+        /** @type {OHLCAggregator} */
         this.agregador = null;
-        /** @type {MD.CandleEngine} */
+        /** @type {CandleEngine} */
         this.motorVelas = null;
-        /** @type {MD.Crosshair} */
+        /** @type {Crosshair} */
         this.crosshair = null;
 
         // ── Estado por activo ──
@@ -104,10 +99,10 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
     inicializar() {
         super.inicializar();
 
-        // Verificar que los motores de modules/ estén disponibles
-        if (typeof MD === 'undefined') {
-            console.error('[WidgetGraficaVelas] ❌ Los módulos MD no están cargados. ' +
-                'Asegúrate de cargar EstadoPrecio.js, AgrupadorVelas.js, MotorVelas.js y CursorGrafica.js antes.');
+        // Verificar que motores_chart.js está cargado
+        if (typeof SharedPriceState === 'undefined') {
+            console.error('[WidgetGraficaVelas] ❌ motores_chart.js no está cargado. ' +
+                'Carga motores_chart.js antes que WidgetGraficaVelas.js en Pruebav2.html.');
             return;
         }
 
@@ -237,10 +232,10 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
     // ════════════════════════════════════════════════════════════════════════
 
     _inicializarMotores() {
-        this.estadoPrecio = new MD.SharedPriceState();
-        this.agregador = new MD.OHLCAggregator(this._timeframe);
-        this.motorVelas = new MD.CandleEngine(this._canvasVelas, this.estadoPrecio);
-        this.crosshair = new MD.Crosshair(this._canvasCrosshair);
+        this.estadoPrecio = new SharedPriceState();
+        this.agregador = new OHLCAggregator(this._timeframe);
+        this.motorVelas = new CandleEngine(this._canvasVelas, this.estadoPrecio);
+        this.crosshair = new Crosshair(this._canvasCrosshair);
 
         // Compartir estadoPrecio con el eje (si ya está vinculado)
         if (this._widgetEje) {
@@ -489,8 +484,9 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
                 const ultima = velas[velas.length - 1];
                 this._precioInicial = primera.open;
                 this._precioActual = ultima.close;
-                this._sessionHigh = Math.max(...velas.map(v => v.high));
-                this._sessionLow = Math.min(...velas.map(v => v.low));
+                // FIX (A): usar reduce para evitar RangeError con arrays grandes (500+ velas)
+                this._sessionHigh = velas.reduce((max, v) => v.high > max ? v.high : max, -Infinity);
+                this._sessionLow = velas.reduce((min, v) => v.low < min ? v.low : min, Infinity);
             }
 
             // ── Guardar en cache para este símbolo + timeframe ──
@@ -505,9 +501,9 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
 
             // Reconstruir banderas históricas a partir de los timestamps del histórico
             // (Solo para stocks — crypto opera 24/7)
-            const symParaCheck = (sym || '').toUpperCase();
-            const esCryptoLocal = /BTC|ETH|DOGE|SOL|XRP|ADA|LTC|AVAX|LINK|MATIC|BNB|DOT|UNI|ATOM/.test(symParaCheck);
-            const esForexLocal = /^[A-Z]{6}$/.test(symParaCheck) && !esCryptoLocal;  // EURUSD, XAUUSD…
+            // FIX (B): usar método estático compartido para detección de crypto
+            const esCryptoLocal = WidgetGraficaVelas._esCriptomoneda(sym);
+            const esForexLocal = /^[A-Z]{6}$/.test((sym || '').toUpperCase()) && !esCryptoLocal;  // EURUSD, XAUUSD…
             if (!esCryptoLocal && !esForexLocal) {
                 this._detectarBanderasHistoricas(velas);
             }
@@ -552,22 +548,23 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
      *   resto           → closed
      */
     _sesionDesdeTiempo(tsUnix) {
+        // FIX (4): usar Intl.DateTimeFormat con timeZone 'America/New_York' para
+        // calcular la hora ET de forma correcta, incluyendo DST automáticamente.
         const fecha = new Date(tsUnix * 1000);
-        const diaSemana = fecha.getUTCDay(); // 0=dom, 6=sab
 
-        // Estimar offset ET: feb = EST (UTC-5) → offsetH = 5
-        // (Esto es aproximado; para producción ideal usar Intl.DateTimeFormat)
-        const mes = fecha.getUTCMonth(); // 0-11
-        // DST en EEUU: 2° domingo de marzo → 1er domingo de noviembre
-        const esDST = (mes > 2 && mes < 10) || (mes === 2 && fecha.getUTCDate() >= 8)
-            || (mes === 10 && fecha.getUTCDate() < 7);
-        const offsetH = esDST ? 4 : 5;
+        const partes = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/New_York',
+            hour: 'numeric',
+            minute: 'numeric',
+            weekday: 'short',
+            hour12: false,
+        }).formatToParts(fecha);
 
-        // Fin de semana ET
-        const horaUTC = fecha.getUTCHours() + fecha.getUTCMinutes() / 60;
-        const horaET = (horaUTC - offsetH + 24) % 24;
+        const get = (type) => partes.find(p => p.type === type)?.value ?? '';
+        const weekday = get('weekday');          // 'Sat', 'Sun', 'Mon'…
+        const horaET = parseInt(get('hour'), 10) + parseInt(get('minute'), 10) / 60;
 
-        if (diaSemana === 0 || diaSemana === 6) return 'closed'; // dom/sab
+        if (weekday === 'Sat' || weekday === 'Sun') return 'closed';
 
         if (horaET >= 4.0 && horaET < 9.5) return 'pre_market';
         if (horaET >= 9.5 && horaET < 16.0) return 'regular';
@@ -594,35 +591,44 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
         let banderasCreadas = 0;
         let ultimaSesion = sesionPrevia;
 
+        // FIX (C): set de timestamps usados para evitar banderas duplicadas
+        const tsUsados = new Set();
+
         for (let i = 1; i < velas.length; i++) {
             const vela = velas[i];
             const sesion = this._sesionDesdeTiempo(vela.time);
             ultimaSesion = sesion;
 
             if (sesion !== sesionPrevia) {
-                // ── OPEN: mercado regular abre desde pre_market o closed ──
-                if (sesion === 'regular') {
-                    this._banderas.push({
-                        tipo: 'OPEN', label: 'OPEN', color: '#22c55e',
-                        timestamp: vela.time, precio: vela.open, fijada: true
-                    });
-                    banderasCreadas++;
-                }
-                // ── AFTER: inicia after-hours (solo desde regular) ──
-                else if (sesion === 'after_hours' && sesionPrevia === 'regular') {
-                    this._banderas.push({
-                        tipo: 'AFTER', label: 'AFTER', color: '#fb923c',
-                        timestamp: vela.time, precio: vela.open, fijada: true
-                    });
-                    banderasCreadas++;
-                }
-                // ── CIERRE: trading termina (after_hours → closed) ──
-                else if (sesion === 'closed' && sesionPrevia === 'after_hours') {
-                    this._banderas.push({
-                        tipo: 'CIERRE', label: 'CIERRE', color: '#6b7280',
-                        timestamp: vela.time, precio: vela.open, fijada: true
-                    });
-                    banderasCreadas++;
+                // Guard: no crear dos banderas en el mismo timestamp
+                if (!tsUsados.has(vela.time)) {
+                    // ── OPEN: mercado regular abre desde pre_market o closed ──
+                    if (sesion === 'regular') {
+                        this._banderas.push({
+                            tipo: 'OPEN', label: 'OPEN', color: '#22c55e',
+                            timestamp: vela.time, precio: vela.open, fijada: true
+                        });
+                        tsUsados.add(vela.time);
+                        banderasCreadas++;
+                    }
+                    // ── AFTER: inicia after-hours (solo desde regular) ──
+                    else if (sesion === 'after_hours' && sesionPrevia === 'regular') {
+                        this._banderas.push({
+                            tipo: 'AFTER', label: 'AFTER', color: '#fb923c',
+                            timestamp: vela.time, precio: vela.open, fijada: true
+                        });
+                        tsUsados.add(vela.time);
+                        banderasCreadas++;
+                    }
+                    // ── CIERRE: trading termina (after_hours → closed) ──
+                    else if (sesion === 'closed' && sesionPrevia === 'after_hours') {
+                        this._banderas.push({
+                            tipo: 'CIERRE', label: 'CIERRE', color: '#6b7280',
+                            timestamp: vela.time, precio: vela.open, fijada: true
+                        });
+                        tsUsados.add(vela.time);
+                        banderasCreadas++;
+                    }
                 }
                 sesionPrevia = sesion;
             }
@@ -720,7 +726,8 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
 
         if (this._mercadoCerrado && !estabaCerrado) {
             // Acaba de cerrarse → pausar y emitir evento
-            this._pausaGraficaAutomatica();
+            // FIX (1): llamar directamente al método correcto (evitar alias confuso)
+            this._pausarGraficaAutomatica();
             this._emitir(EVENTOS.ESTADO_MERCADO_CERRADO, {
                 simbolo: this._simbolo,
                 timestamp: ahoraTs,
@@ -929,8 +936,7 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
     // Alias en español para la API pública
     reanudarGrafica() { this._reanudarGraficaAutomatica(); }
 
-    // Alias con nombre coincidente al llamado anterior (_pausaGraficaAutomatica → _pausarGraficaAutomatica)
-    _pausaGraficaAutomatica() { this._pausarGraficaAutomatica(); }
+    // FIX (1): alias eliminado — la llamada en _onSession ya usa _pausarGraficaAutomatica directamente
 
 
 
@@ -944,9 +950,8 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
         this._mercado = mercado || this._mercado;
         this._precisionPrecio = cfg?.precision ?? 2;
 
-        // Detectar si es crypto ya aquí (para no descartar ticks antes del primer _onSession)
-        const symUp = (simbolo || '').toUpperCase();
-        this._esCrypto = /BTC|ETH|DOGE|SOL|XRP|ADA|LTC|AVAX|LINK|MATIC|BNB|DOT|UNI|ATOM/.test(symUp);
+        // FIX (B): usar método estático compartido
+        this._esCrypto = WidgetGraficaVelas._esCriptomoneda(simbolo);
 
         // Limpiar estado del activo anterior
         this._rawTicks = [];
@@ -979,13 +984,18 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
 
         if (cached && (Date.now() - cached.ts) < CACHE_TTL_MS) {
             console.log(`[GraficaVelas] ⚡ Cache hit para ${simbolo} (${this._timeframe}s) — cargando instantáneo`);
-            // Cargar desde cache sin esperar REST
-            this._onInit({
-                simbolo,
-                candles: cached.candles,
-                timeframe: this._timeframe,
-                fuente: 'cache_local',
-            });
+            try {
+                // FIX (6): guard con try/catch para que un fallo en _onInit no deje el overlay visible
+                this._onInit({
+                    simbolo,
+                    candles: cached.candles,
+                    timeframe: this._timeframe,
+                    fuente: 'cache_local',
+                });
+            } catch (err) {
+                console.error('[GraficaVelas] ❌ Error al cargar cache:', err);
+                this._ocultarOverlayLoading();
+            }
         } else {
             // Mostrar overlay de carga mientras llega el REST
             this._mostrarOverlayLoading(simbolo);
@@ -997,13 +1007,16 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
     _alCambiarTimeframe(payload) {
         if (!this.agregador) return;
         const seg = payload.timeframe_seg || payload.segundos || payload.value || 60;
+
+        // FIX (3): guardar TF anterior ANTES de cambiarlo para invalidar la clave correcta
+        const tfAnterior = this._timeframe;
         this._timeframe = seg;
         this.agregador.changeInterval(seg, this._rawTicks);
         this.estadoPrecio.resetZoom();
         this.motorVelas.resetPan();
 
-        // Invalidar entrada del símbolo activo para el TF anterior (forzar recarga en REST)
-        const anteriorKey = `${this._simbolo}_${this._timeframe}`;
+        // Invalidar la entrada del TF anterior (no el nuevo)
+        const anteriorKey = `${this._simbolo}_${tfAnterior}`;
         if (this._symbolCache.has(anteriorKey)) this._symbolCache.delete(anteriorKey);
 
         // Mostrar overlay mientras llegan datos del nuevo TF
@@ -1275,4 +1288,18 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
 
     // ── ID único para elementos ──
     get _id() { return this.contenedor.id || Math.random().toString(36).slice(2, 7); }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  UTILIDADES ESTÁTICAS
+    // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * FIX (B): Detecta si un símbolo es una criptomoneda.
+     * Método estático para evitar duplicar la expresión regular en múltiples lugares.
+     * @param {string} simbolo
+     * @returns {boolean}
+     */
+    static _esCriptomoneda(simbolo) {
+        return /BTC|ETH|DOGE|SOL|XRP|ADA|LTC|AVAX|LINK|MATIC|BNB|DOT|UNI|ATOM/i.test(simbolo || '');
+    }
 }

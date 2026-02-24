@@ -2,17 +2,13 @@
  * ╔══════════════════════════════════════════════════════════════════════════════╗
  * ║  WidgetGraficaEje.js — Eje de Precio (columna derecha de la gráfica)      ║
  * ╠══════════════════════════════════════════════════════════════════════════════╣
- * ║  Usa MD.PriceAxisRenderer de modules/ sin modificar ese archivo.           ║
- * ║    ✓ Etiquetas de precio + gridlines                                        ║
- * ║    ✓ Tag verde/rojo del precio actual                                       ║
+ * ║  Motores internos (de motores_chart.js — sin dependencias externas):        ║
+ * ║    PriceAxisRenderer  → etiquetas de precio, gridlines, tag del precio      ║
+ * ║    SharedPriceState   → compartido con WidgetGraficaVelas (zoom vertical)   ║
  * ║    ✓ Zoom vertical: drag (↕ arrastrar) + scroll wheel                      ║
  * ║    ✓ Doble clic → resetear zoom vertical                                    ║
- * ║    ✓ Comparte MD.SharedPriceState con WidgetGraficaVelas                   ║
+ * ║  Dependencias: motores_chart.js (cargar antes en Pruebav2.html)             ║
  * ╚══════════════════════════════════════════════════════════════════════════════╝
- *
- * Dependencias:
- *   ../../modules/EstadoPrecio.js   → MD.SharedPriceState
- *   ../../modules/EjePrecio.js      → MD.PriceAxisRenderer
  */
 
 class WidgetGraficaEje extends ClaseBaseWidget {
@@ -20,10 +16,10 @@ class WidgetGraficaEje extends ClaseBaseWidget {
     constructor(contenedor, configuracion = {}) {
         super(contenedor, configuracion);
 
-        /** @type {MD.SharedPriceState|null} — compartido con WidgetGraficaVelas */
+        /** @type {SharedPriceState|null} — compartido con WidgetGraficaVelas */
         this.estadoPrecio = configuracion.estadoPrecio || null;
 
-        /** @type {MD.PriceAxisRenderer|null} */
+        /** @type {PriceAxisRenderer|null} */
         this._renderer = null;
 
         this._precioActual = 0;
@@ -76,7 +72,7 @@ class WidgetGraficaEje extends ClaseBaseWidget {
 
         // Instanciar renderer si ya hay estadoPrecio
         if (this.estadoPrecio) {
-            this._renderer = new MD.PriceAxisRenderer(this._canvas, this.estadoPrecio);
+            this._renderer = new PriceAxisRenderer(this._canvas, this.estadoPrecio);
         }
 
         // ResizeObserver
@@ -106,12 +102,12 @@ class WidgetGraficaEje extends ClaseBaseWidget {
     /**
      * Actualiza la referencia al SharedPriceState compartido.
      * Llamado desde WidgetGraficaVelas.vincularEje().
-     * @param {MD.SharedPriceState} estado
+     * @param {SharedPriceState} estado
      */
     actualizarEstadoPrecio(estado) {
         this.estadoPrecio = estado;
         if (this._canvas) {
-            this._renderer = new MD.PriceAxisRenderer(this._canvas, this.estadoPrecio);
+            this._renderer = new PriceAxisRenderer(this._canvas, this.estadoPrecio);
         }
     }
 

@@ -1,12 +1,12 @@
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗
- * ║  GestorWidgets.js — Mediador Central de WebSockets y Datos             ║
+ * ║  GestorWidgets.js — Mediador Central (solo Chart :8765)                ║
  * ╠══════════════════════════════════════════════════════════════════════════╣
  * ║  Responsabilidades:                                                     ║
- * ║    1. Gestionar conexiones WebSocket (:8765 chart, :8766 orderbook)    ║
- * ║    2. Suscribirse a activos y distribuir datos via BusEventos          ║
+ * ║    1. Gestionar la conexión WebSocket :8765 (chart.py)                 ║
+ * ║    2. Distribuir DATOS_INIT, DATOS_TICK, SESION_MERCADO via bus        ║
  * ║    3. Reaccionar a CAMBIO_ACTIVO y CAMBIO_TIMEFRAME                   ║
- * ║    4. limpiarMemoria() para evitar fugas al cambiar de activo          ║
+ * ║  NOTA: El WS del Order Book (:8766) lo gestiona WidgetLibroOrdenes     ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  */
 
@@ -14,39 +14,22 @@ class GestorWidgets {
 
     /**
      * @param {Object} opciones
-     * @param {string} [opciones.host='localhost'] - Host de los servidores WS
-     * @param {number} [opciones.puertoChart=8765] - Puerto del ChartServer
-     * @param {number} [opciones.puertoBook=8766] - Puerto del OrderBookServer
+     * @param {string} [opciones.host='localhost']
+     * @param {number} [opciones.puertoChart=8765]
      */
     constructor(opciones = {}) {
         this._host = opciones.host || 'localhost';
         this._puertoChart = opciones.puertoChart || 8765;
-        this._puertoBook = opciones.puertoBook || 8766;
 
         /** @type {WebSocket|null} */
         this._wsChart = null;
-        /** @type {WebSocket|null} */
-        this._wsBook = null;
 
-        /** @type {string} Símbolo actualmente activo */
         this._simboloActual = '';
-
-        /** @type {number} Timeframe actual en segundos */
         this._timeframeActual = 60;
-
-        /** @type {number} Contador de ticks recibidos */
         this._contadorTicks = 0;
-
-        /** @type {number} Intentos de reconexión */
         this._reconexionesChart = 0;
-        this._reconexionesBook = 0;
         this._maxReconexiones = 20;
-
-        /** @type {number|null} Timers de reconexión */
         this._timerReconexionChart = null;
-        this._timerReconexionBook = null;
-
-        /** @type {Function[]} Desuscripciones del bus */
         this._desuscripciones = [];
 
         // Métricas
@@ -59,61 +42,36 @@ class GestorWidgets {
     //  INICIALIZACIÓN
     // ══════════════════════════════════════════════════════════════════════
 
-    /**
-     * Arranca el gestor: conecta WebSockets y escucha eventos del bus.
-     */
     iniciar() {
-        console.log('[GestorWidgets] Iniciando mediador central...');
-
-        // Escuchar cambios de activo y timeframe desde los selectores
-        this._desuscripciones.push(
-            busEventos.suscribir(EVENTOS.CAMBIO_ACTIVO, (datos) => {
-                this._alCambiarActivo(datos);
-            })
-        );
+        console.log('[GestorWidgets] Iniciando mediador de Chart...');
 
         this._desuscripciones.push(
-            busEventos.suscribir(EVENTOS.CAMBIO_TIMEFRAME, (datos) => {
-                this._alCambiarTimeframe(datos);
-            })
+            busEventos.suscribir(EVENTOS.CAMBIO_ACTIVO, datos => this._alCambiarActivo(datos))
+        );
+        this._desuscripciones.push(
+            busEventos.suscribir(EVENTOS.CAMBIO_TIMEFRAME, datos => this._alCambiarTimeframe(datos))
         );
 
-        // Conectar a ambos servidores WebSocket
         this._conectarChart();
-        this._conectarBook();
 
-        // Métricas periódicas
         this._timerMetricas = setInterval(() => {
             this._ticksPorSegundo = this._contadorTicks - this._ultimoConteo;
             this._ultimoConteo = this._contadorTicks;
         }, 1000);
     }
 
-    /**
-     * Detiene todo: cierra WebSockets, limpia timers, desuscribe eventos.
-     */
     detener() {
         console.log('[GestorWidgets] Deteniendo...');
-
         clearInterval(this._timerMetricas);
         clearTimeout(this._timerReconexionChart);
-        clearTimeout(this._timerReconexionBook);
 
         if (this._wsChart) {
-            this._wsChart.onclose = null; // Prevenir reconexión
+            this._wsChart.onclose = null;
             this._wsChart.close();
             this._wsChart = null;
         }
 
-        if (this._wsBook) {
-            this._wsBook.onclose = null;
-            this._wsBook.close();
-            this._wsBook = null;
-        }
-
-        for (const desuscribir of this._desuscripciones) {
-            desuscribir();
-        }
+        for (const fn of this._desuscripciones) fn();
         this._desuscripciones = [];
     }
 
@@ -123,15 +81,14 @@ class GestorWidgets {
 
     _conectarChart() {
         const url = `ws://${this._host}:${this._puertoChart}`;
-        console.log(`[GestorWidgets] Conectando a ChartServer: ${url}`);
-
+        console.log(`[GestorWidgets] Conectando ChartServer: ${url}`);
         busEventos.emitir(EVENTOS.CONEXION_ESTADO, { tipo: 'chart', conectado: false, estado: 'conectando' });
 
         try {
             this._wsChart = new WebSocket(url);
-        } catch (error) {
-            console.error('[GestorWidgets] Error creando WebSocket Chart:', error);
-            this._programarReconexion('chart');
+        } catch (err) {
+            console.error('[GestorWidgets] Error creando WS Chart:', err);
+            this._programarReconexion();
             return;
         }
 
@@ -140,8 +97,6 @@ class GestorWidgets {
             this._reconexionesChart = 0;
             busEventos.emitir(EVENTOS.CONEXION_ESTADO, { tipo: 'chart', conectado: true, estado: 'conectado' });
 
-            // Si ya hay un símbolo seleccionado (CAMBIO_ACTIVO llegó antes del WS)
-            // envíarlo ahora que la conexión está lista
             if (this._simboloActual) {
                 console.log(`[GestorWidgets] 🔄 Re-suscribiendo a '${this._simboloActual}' tras conectar`);
                 this._wsChart.send(JSON.stringify({
@@ -151,47 +106,39 @@ class GestorWidgets {
             }
         };
 
-        this._wsChart.onmessage = (evento) => {
-            this._procesarMensajeChart(evento.data);
-        };
+        this._wsChart.onmessage = e => this._procesarMensajeChart(e.data);
 
         this._wsChart.onclose = () => {
             console.warn('[GestorWidgets] ❌ ChartServer desconectado');
             busEventos.emitir(EVENTOS.CONEXION_ESTADO, { tipo: 'chart', conectado: false, estado: 'desconectado' });
-            this._programarReconexion('chart');
+            this._programarReconexion();
         };
 
-        this._wsChart.onerror = (error) => {
-            console.error('[GestorWidgets] Error en ChartServer WS:', error);
+        this._wsChart.onerror = err => {
+            console.error('[GestorWidgets] Error WS Chart:', err);
         };
     }
 
     _procesarMensajeChart(crudo) {
         let datos;
-        try {
-            datos = JSON.parse(crudo);
-        } catch (e) {
-            return;
-        }
+        try { datos = JSON.parse(crudo); } catch { return; }
 
         switch (datos.type) {
             case 'symbols':
                 busEventos.emitir(EVENTOS.SIMBOLOS_DISPONIBLES, { simbolos: datos.symbols });
                 break;
 
-            // Historial con velas OHLC reales (nuevo formato)
             case 'init_ohlc':
                 busEventos.emitir(EVENTOS.DATOS_INIT, {
                     simbolo: datos.symbol,
-                    candles: datos.candles,   // array de {time,open,high,low,close,volume}
-                    datos: null,              // no hay ticks crudos
+                    candles: datos.candles,
+                    datos: null,
                     timeframe: datos.timeframe || 60,
                     fuente: datos.source || 'polygon_rest',
                     velas_cargadas: datos.candles_loaded || 0,
                 });
                 break;
 
-            // Historial en formato tick legacy (fallback)
             case 'init':
                 busEventos.emitir(EVENTOS.DATOS_INIT, {
                     simbolo: datos.symbol,
@@ -219,7 +166,7 @@ class GestorWidgets {
                     time_et: datos.time_et,
                     is_open: datos.is_open,
                     is_weekend: datos.is_weekend,
-                    next_open: datos.next_open,   // hora de próxima apertura (para el banner)
+                    next_open: datos.next_open,
                 });
                 break;
 
@@ -230,158 +177,39 @@ class GestorWidgets {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    //  WEBSOCKET — ORDER BOOK SERVER (:8766)
+    //  RECONEXIÓN
     // ══════════════════════════════════════════════════════════════════════
 
-    _conectarBook() {
-        const url = `ws://${this._host}:${this._puertoBook}`;
-        console.log(`[GestorWidgets] Conectando a OrderBookServer: ${url}`);
-
-        busEventos.emitir(EVENTOS.CONEXION_ESTADO, { tipo: 'book', conectado: false, estado: 'conectando' });
-
-        try {
-            this._wsBook = new WebSocket(url);
-        } catch (error) {
-            console.error('[GestorWidgets] Error creando WebSocket Book:', error);
-            this._programarReconexion('book');
+    _programarReconexion() {
+        if (this._reconexionesChart >= this._maxReconexiones) {
+            console.error('[GestorWidgets] Máximo de reconexiones alcanzado para chart');
             return;
         }
-
-        this._wsBook.onopen = () => {
-            console.log('[GestorWidgets] ✅ OrderBookServer conectado');
-            this._reconexionesBook = 0;
-            busEventos.emitir(EVENTOS.CONEXION_ESTADO, { tipo: 'book', conectado: true, estado: 'conectado' });
-
-            // Si ya hay un símbolo seleccionado, suscribirse
-            if (this._simboloActual) {
-                this._enviarSuscripcionBook(this._simboloActual);
-            }
-        };
-
-        this._wsBook.onmessage = (evento) => {
-            this._procesarMensajeBook(evento.data);
-        };
-
-        this._wsBook.onclose = () => {
-            console.warn('[GestorWidgets] ❌ OrderBookServer desconectado');
-            busEventos.emitir(EVENTOS.CONEXION_ESTADO, { tipo: 'book', conectado: false, estado: 'desconectado' });
-            this._programarReconexion('book');
-        };
-
-        this._wsBook.onerror = (error) => {
-            console.error('[GestorWidgets] Error en OrderBookServer WS:', error);
-        };
-    }
-
-    _procesarMensajeBook(crudo) {
-        let datos;
-        try {
-            datos = JSON.parse(crudo);
-        } catch (e) {
-            return;
-        }
-
-        if (datos.type === 'book') {
-            busEventos.emitir(EVENTOS.DATOS_BOOK, {
-                simbolo: datos.symbol || datos.simbolo,
-                bids: datos.bids || [],
-                asks: datos.asks || [],
-                best_bid: datos.best_bid || 0,
-                best_ask: datos.best_ask || 0,
-                spread: datos.spread || 0,
-                mid_price: datos.mid_price || 0,
-                updates: datos.updates || 0,
-                num_exchanges_bid: datos.num_exchanges_bid || 0,
-                num_exchanges_ask: datos.num_exchanges_ask || 0,
-            });
-        }
-        // 'symbols' del OB server se ignora (usamos los del chart server)
+        this._reconexionesChart++;
+        const espera = Math.min(1000 * Math.pow(2, this._reconexionesChart), 30000);
+        console.log(`[GestorWidgets] Reconectando chart en ${espera / 1000}s (intento ${this._reconexionesChart}/${this._maxReconexiones})`);
+        this._timerReconexionChart = setTimeout(() => this._conectarChart(), espera);
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    //  RECONEXIÓN CON BACKOFF EXPONENCIAL
-    // ══════════════════════════════════════════════════════════════════════
-
-    _programarReconexion(tipo) {
-        const esChart = tipo === 'chart';
-        let intentos = esChart ? this._reconexionesChart : this._reconexionesBook;
-
-        if (intentos >= this._maxReconexiones) {
-            console.error(`[GestorWidgets] Máximo de reconexiones alcanzado para ${tipo}`);
-            return;
-        }
-
-        if (esChart) this._reconexionesChart++;
-        else this._reconexionesBook++;
-
-        intentos = esChart ? this._reconexionesChart : this._reconexionesBook;
-        const espera = Math.min(1000 * Math.pow(2, intentos), 30000);
-
-        console.log(`[GestorWidgets] Reconectando ${tipo} en ${espera / 1000}s (intento ${intentos}/${this._maxReconexiones})`);
-
-        const timer = setTimeout(() => {
-            if (esChart) this._conectarChart();
-            else this._conectarBook();
-        }, espera);
-
-        if (esChart) this._timerReconexionChart = timer;
-        else this._timerReconexionBook = timer;
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
-    //  CAMBIO DE ACTIVO — Limpieza + re-suscripción
+    //  CAMBIO DE ACTIVO
     // ══════════════════════════════════════════════════════════════════════
 
     _alCambiarActivo(datos) {
-        const nuevoSimbolo = datos.simbolo;
+        const nuevo = datos.simbolo;
+        const cambioReal = nuevo !== this._simboloActual;
 
-        // Permitir re-suscripción aunque sea el mismo símbolo (ej: recarga de página)
-        const cambioReal = nuevoSimbolo !== this._simboloActual;
         if (cambioReal) {
-            console.log(`[GestorWidgets] Cambiando activo: ${this._simboloActual || '—'} → ${nuevoSimbolo}`);
+            console.log(`[GestorWidgets] Cambiando activo: ${this._simboloActual || '—'} → ${nuevo}`);
             this.limpiarMemoria();
         } else {
-            console.log(`[GestorWidgets] Re-suscribiendo a '${nuevoSimbolo}' (mismo activo)`);
+            console.log(`[GestorWidgets] Re-suscribiendo a '${nuevo}' (mismo activo)`);
         }
 
-        this._simboloActual = nuevoSimbolo;
+        this._simboloActual = nuevo;
 
-        // Enviar subscribe al ChartServer (pide historial OHLC + ticks en vivo)
         if (this._wsChart && this._wsChart.readyState === WebSocket.OPEN) {
-            this._wsChart.send(JSON.stringify({
-                action: 'subscribe',
-                symbol: nuevoSimbolo,
-            }));
-        }
-
-        // Enviar subscribe al OrderBook Server
-        this._enviarSuscripcionBook(nuevoSimbolo);
-    }
-
-    _enviarSuscripcionBook(simbolo) {
-        if (this._wsBook && this._wsBook.readyState === WebSocket.OPEN) {
-            this._wsBook.send(JSON.stringify({
-                action: 'subscribe',
-                symbol: simbolo,
-            }));
-            console.log(`[GestorWidgets] 📡 Subscribe Book → ${simbolo}`);
-        } else {
-            // WS aún no listo: reintentar hasta que abra (máx 10 intentos × 300ms = 3s)
-            let intentos = 0;
-            const retry = setInterval(() => {
-                intentos++;
-                if (this._wsBook && this._wsBook.readyState === WebSocket.OPEN) {
-                    clearInterval(retry);
-                    // Solo suscribir si el símbolo objetivo sigue siendo el activo
-                    if (this._simboloActual === simbolo) {
-                        this._wsBook.send(JSON.stringify({ action: 'subscribe', symbol: simbolo }));
-                        console.log(`[GestorWidgets] 📡 Subscribe Book (retry ${intentos}) → ${simbolo}`);
-                    }
-                } else if (intentos >= 10) {
-                    clearInterval(retry);
-                    console.warn(`[GestorWidgets] ⚠ Subscribe Book cancelado (WS no conectó) → ${simbolo}`);
-                }
-            }, 300);
+            this._wsChart.send(JSON.stringify({ action: 'subscribe', symbol: nuevo }));
         }
     }
 
@@ -396,29 +224,20 @@ class GestorWidgets {
         console.log(`[GestorWidgets] Cambiando timeframe: ${this._timeframeActual}s → ${nuevoTF}s`);
         this._timeframeActual = nuevoTF;
 
-        // Pedir al ChartServer que recargue el historial para este timeframe
         if (this._wsChart && this._wsChart.readyState === WebSocket.OPEN) {
-            this._wsChart.send(JSON.stringify({
-                action: 'set_timeframe',
-                timeframe: nuevoTF,
-            }));
+            this._wsChart.send(JSON.stringify({ action: 'set_timeframe', timeframe: nuevoTF }));
         }
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    //  LIMPIEZA DE MEMORIA — Evitar fugas al cambiar activo
+    //  LIMPIEZA DE MEMORIA
     // ══════════════════════════════════════════════════════════════════════
 
-    /**
-     * Limpia datos en memoria del activo anterior.
-     * Los widgets individuales deben escuchar CAMBIO_ACTIVO para resetear
-     * sus propios buffers, pero aquí se resetean los contadores globales.
-     */
     limpiarMemoria() {
         this._contadorTicks = 0;
         this._ultimoConteo = 0;
         this._ticksPorSegundo = 0;
-        console.log('[GestorWidgets] Memoria limpiada para cambio de activo');
+        console.log('[GestorWidgets] Memoria limpiada');
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -430,11 +249,9 @@ class GestorWidgets {
             ticks_totales: this._contadorTicks,
             ticks_por_segundo: this._ticksPorSegundo,
             chart_conectado: this._wsChart?.readyState === WebSocket.OPEN,
-            book_conectado: this._wsBook?.readyState === WebSocket.OPEN,
             simbolo_actual: this._simboloActual,
             timeframe_actual: this._timeframeActual,
             reconexiones_chart: this._reconexionesChart,
-            reconexiones_book: this._reconexionesBook,
         };
     }
 }

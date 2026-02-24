@@ -586,7 +586,8 @@ class OrderBookServer:
         {"action": "subscribe", "symbol": "TSLA"}
     """
 
-    def __init__(self, simbolos: list[str], host: str = "localhost", port: int = 8766):
+    def __init__(self, simbolos: list[str], host: str = "localhost", port: int = 8766,
+                 on_nuevo_simbolo_cb=None):
         self.simbolos = simbolos
         self.host = host
         self.port = port
@@ -596,6 +597,8 @@ class OrderBookServer:
         self._server = None
         self._throttle_interval = 0.1  # Enviar máximo cada 100ms
         self._last_send_time: dict = defaultdict(float)
+        # Callback opcional: (simbolo: str) → se llama cuando llega un símbolo nuevo
+        self._on_nuevo_simbolo = on_nuevo_simbolo_cb
 
     async def iniciar(self) -> None:
         """Inicia el servidor WebSocket para conexiones del navegador."""
@@ -652,6 +655,9 @@ class OrderBookServer:
                             "best_bid": 0, "best_ask": 0,
                             "spread": 0, "mid_price": 0,
                         }))
+                    # ── Suscribir en caliente a Polygon Quotes si es nuevo ──
+                    if self._on_nuevo_simbolo:
+                        await self._on_nuevo_simbolo(new_sym)
                     logger.info("Navegador cambió OrderBook a '%s'", new_sym)
 
         except websockets.ConnectionClosed:
@@ -1434,7 +1440,8 @@ def main():
     # ── Chart Server ──
     chart_server = ChartServer(simbolos=SIMBOLOS, port=CHART_PORT)
 
-    # ── OrderBook Server ──
+    # ── OrderBook Server (con callback para suscripción dinámica a motor_quotes) ──
+    # NOTA: motor_quotes se crea después, se parchea el callback tras crearlo
     ob_server = OrderBookServer(simbolos=SIMBOLOS, port=ORDERBOOK_PORT)
 
     # ── Callback: Se ejecuta por cada trade recibido ──
@@ -1479,6 +1486,19 @@ def main():
         on_book_cb=al_actualizar_book,
         max_reconexiones=50, heartbeat_seg=30,
     ) if SIMBOLOS_STOCKS else None
+
+    # ── Conectar callback de suscripción dinámica ──
+    async def _suscribir_simbolo_dinamico(simbolo: str) -> None:
+        """Suscribe en caliente cuando el browser pide un símbolo no listado."""
+        if not motor_quotes:
+            return
+        from mapeador_simbolos import Mapeador
+        if Mapeador.es_crypto(simbolo):
+            return   # crypto no tiene quotes L2 en Polygon
+        await motor_quotes.suscribir_simbolo(simbolo)
+        logger.info("[OB] 🔔 Suscripción dinámica a Polygon Quotes: %s", simbolo)
+
+    ob_server._on_nuevo_simbolo = _suscribir_simbolo_dinamico
 
     # No hay motor de quotes crypto (REST no soporta orderbook L2 en tiempo real)
     motor_quotes_crypto = None
@@ -1527,50 +1547,55 @@ def main():
                 prev_session = cur_session
             chart_server.broadcast_session()
 
-    # ── Tarea periódica: OB sintético para stocks fuera de horario ──
+    # ── Tarea periódica: OB sintético — fallback para cualquier símbolo sin datos reales ──
     async def stock_book_sintetico_loop():
-        """Genera OB sintético para stocks cuando el mercado está cerrado.
-        
-        Combina SIMBOLOS_STOCKS (del .env) con los símbolos suscritos dinámicamente
-        por clientes del browser. Así META/MSFT reciben datos aunque no estén en .env.
-        Se detiene automáticamente cuando el mercado abre (PolygonQuotesWS toma el relevo).
+        """Genera OB sintético como fallback.
+
+        - Siempre activo (mercado abierto o cerrado).
+        - Solo genera si el símbolo NO tiene datos reales recientes (<10s).
+        - Combina SIMBOLOS_STOCKS + símbolos dinámicos de clientes conectados.
+        - Crypto se excluye (tiene su propio motor).
         """
         CRYPTO_SYMBOLS = set([s.upper() for s in SIMBOLOS_CRYPTO])
         counter = 0
         while True:
             await asyncio.sleep(5)
-            # Solo generar cuando el mercado está CERRADO
-            if MarketSession.esta_abierto():
-                continue
 
-            # Unir símbolos del .env con los suscritos por clientes (excepto crypto)
+            # Unir símbolos del .env con los suscritos dinámicamente por clientes
             simbolos_clientes = {
                 sym for sym in ob_server._client_symbols.values()
                 if sym and sym.upper() not in CRYPTO_SYMBOLS
             }
             simbolos_a_generar = set(SIMBOLOS_STOCKS) | simbolos_clientes
 
+            now = time.time()
             for simbolo in simbolos_a_generar:
+                # Si hay datos reales recientes (< 10s), no generar sintético
+                ultimo_real = ob_server._last_send_time.get(simbolo, 0)
+                if now - ultimo_real < 10:
+                    continue
+
                 # 1º: precio en tiempo real o ya cacheado
                 precio = ultimo_precio.get(simbolo, 0)
                 if precio <= 0:
-                    # 2º: último tick del price_buffer (si el usuario lo visitó antes)
+                    # 2º: último tick del price_buffer
                     buf = chart_server._price_buffer.get(simbolo, {})
                     if buf:
                         max_ts = max(buf.keys())
                         precio = buf[max_ts]
                         ultimo_precio[simbolo] = precio
                 if precio <= 0:
-                    # 3º: consultar Polygon REST (cierre anterior) — solo si sin precio
+                    # 3º: consultar Polygon REST (cierre anterior)
                     precio = await _obtener_precio_rest_para_sintetico(simbolo, API_KEY)
                     if precio > 0:
-                        ultimo_precio[simbolo] = precio  # cachear para iteraciones futuras
+                        ultimo_precio[simbolo] = precio
                 if precio <= 0:
-                    logger.debug("[OB SYNTH] Sin precio para %s — omitiendo ciclo", simbolo)
+                    logger.debug("[OB SYNTH] Sin precio para %s — omitiendo", simbolo)
                     continue
                 counter += 1
                 snapshot = _generar_book_sintetico_stock(simbolo, precio, counter)
                 al_actualizar_book(snapshot)
+                logger.debug("[OB SYNTH] Snapshot sintético generado para %s @ $%.2f", simbolo, precio)
 
 
     # ── Ejecutar todo ──

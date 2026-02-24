@@ -88,18 +88,13 @@
     <!-- 2. Configuración: Catálogo de mercados + Factory -->
     <script src="./FabricaWidgets.js"></script>
 
-    <!-- 3. Módulos base de la gráfica (de modules/) — NO modificar estos archivos -->
-    <script src="../../modules/EstadoPrecio.js"></script>
-    <script src="../../modules/AgrupadorVelas.js"></script>
-    <script src="../../modules/MotorVelas.js"></script>
-    <script src="../../modules/CursorGrafica.js"></script>
-    <script src="../../modules/EjePrecio.js"></script>
+    <!-- 3. Motores internos de la gráfica (sin dependencias externas) -->
+    <script src="./motores_chart.js"></script>
 
     <!-- 4. Widgets concretos -->
     <script src="./WidgetSelectorActivos.js"></script>
     <script src="./WidgetSelectorTiempo.js"></script>
-    <!-- Motor del OB debe cargarse antes que su widget wrapper -->
-    <script src="../../modules/MotorOrderBook.js"></script>
+    <!-- WidgetLibroOrdenes es ahora autónomo — NO requiere MotorOrderBook.js -->
     <script src="./WidgetLibroOrdenes.js"></script>
     <script src="./WidgetGraficaVelas.js"></script>
     <script src="./WidgetGraficaEje.js"></script>
@@ -131,6 +126,7 @@
                 { timeframeInicial: 60 }
             );
 
+            // WidgetLibroOrdenes: autónomo, gestiona su propio WS a :8766
             const libroOrdenes = FabricaWidgets.crear(
                 'libro_ordenes',
                 document.getElementById('mount-orderbook'),
@@ -157,12 +153,11 @@
             // Compartir el SharedPriceState entre velas y eje
             graficaVelas.vincularEje(graficaEje);
 
-            // ── 2. Iniciar el Gestor Central (conecta WebSockets) ──
+            // ── 2. Iniciar el Gestor Central (solo chart :8765) ──
 
             const gestor = new GestorWidgets({
                 host: 'localhost',
                 puertoChart: 8765,
-                puertoBook: 8766,
             });
             gestor.iniciar();
 
@@ -178,14 +173,9 @@
                 document.getElementById('metrica-timeframe').textContent = datos.etiqueta;
             });
 
-            // Actualizar spread desde el orderbook
-            busEventos.suscribir(EVENTOS.DATOS_BOOK, (datos) => {
-                const cfg = FabricaWidgets.obtenerConfiguracion(datos.simbolo);
-                if (cfg) {
-                    document.getElementById('metrica-spread').textContent =
-                        `$${datos.spread.toFixed(cfg.precision)}`;
-                }
-            });
+            // Actualizar spread: leído directamente desde el book del widget
+            // (ya no viene de DATOS_BOOK en el bus — el widget lo procesa internamente)
+            // Se mantiene el display vacío hasta que el book envíe datos
 
             // Contador de ticks
             let contadorTicksUI = 0;
@@ -195,37 +185,55 @@
                     contadorTicksUI.toLocaleString();
             });
 
-            // Resetear contador al cambiar activo
+            // Resetear contador + spread al cambiar activo
             busEventos.suscribir(EVENTOS.CAMBIO_ACTIVO, () => {
                 contadorTicksUI = 0;
                 document.getElementById('metrica-ticks').textContent = '0';
                 document.getElementById('metrica-spread').textContent = '—';
             });
 
-            // Estado de conexión
+            // Estado de conexión del Chart
             busEventos.suscribir(EVENTOS.CONEXION_ESTADO, (datos) => {
-                const esChart = datos.tipo === 'chart';
-                const punto = document.getElementById(esChart ? 'estado-punto-chart' : 'estado-punto-book');
-                const texto = document.getElementById(esChart ? 'estado-texto-chart' : 'estado-texto-book');
-                const prefijo = esChart ? 'Chart' : 'OB';
-
-                if (punto) {
-                    punto.className = 'v2-estado-punto';
-                    if (datos.estado === 'conectado') {
-                        punto.classList.add('conectado');
-                        texto.textContent = `${prefijo}: Conectado`;
-                    } else if (datos.estado === 'conectando') {
-                        punto.classList.add('conectando');
-                        texto.textContent = `${prefijo}: Conectando...`;
-                    } else {
-                        punto.classList.add('desconectado');
-                        texto.textContent = `${prefijo}: Desconectado`;
-                    }
+                if (datos.tipo !== 'chart') return;
+                const punto = document.getElementById('estado-punto-chart');
+                const texto = document.getElementById('estado-texto-chart');
+                if (!punto) return;
+                punto.className = 'v2-estado-punto';
+                if (datos.estado === 'conectado') {
+                    punto.classList.add('conectado');
+                    texto.textContent = 'Chart: Conectado';
+                } else if (datos.estado === 'conectando') {
+                    punto.classList.add('conectando');
+                    texto.textContent = 'Chart: Conectando...';
+                } else {
+                    punto.classList.add('desconectado');
+                    texto.textContent = 'Chart: Desconectado';
                 }
             });
 
-            // ── 4. Disparar selección inicial del activo por defecto ──
-            // (Esto activa la suscripción WebSocket al símbolo inicial)
+            // Estado de conexión del Order Book (emitido directamente por WidgetLibroOrdenes
+            // a través de su estado visual interno — aquí solo lo reflejamos en métricas)
+            // Para mantener indicador OB en la barra inferior, el widget emite su propio estado:
+            busEventos.suscribir(EVENTOS.CONEXION_ESTADO, (datos) => {
+                if (datos.tipo !== 'book') return;
+                const punto = document.getElementById('estado-punto-book');
+                const texto = document.getElementById('estado-texto-book');
+                if (!punto) return;
+                punto.className = 'v2-estado-punto';
+                if (datos.estado === 'conectado') {
+                    punto.classList.add('conectado');
+                    texto.textContent = 'OB: Conectado';
+                } else if (datos.estado === 'conectando') {
+                    punto.classList.add('conectando');
+                    texto.textContent = 'OB: Conectando...';
+                } else {
+                    punto.classList.add('desconectado');
+                    texto.textContent = 'OB: Desconectado';
+                }
+            });
+
+            // ── 4. Disparar selección inicial del activo ──
+            // (Activa la suscripción del chart y del order book al símbolo inicial)
             setTimeout(() => {
                 busEventos.emitir(EVENTOS.CAMBIO_ACTIVO, {
                     simbolo: 'AAPL',
@@ -249,7 +257,7 @@
 
             console.log('[App v2] ✅ Iniciada correctamente.');
             console.log('[App v2] Debug: window.__v2 contiene todas las referencias.');
-            console.log('[App v2] WebSockets: ws://localhost:8765 (chart) y ws://localhost:8766 (book)');
+            console.log('[App v2] WebSockets: ws://localhost:8765 (chart) | ws://localhost:8766 (book — gestionado por WidgetLibroOrdenes)');
 
         })();
     </script>
