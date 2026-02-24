@@ -1,9 +1,0 @@
-{
-  "dependencies": {
-    "numpy": "^0.0.1",
-    "pandas": "^0.0.3",
-    "requests": "^0.3.0",
-    "streamlit": "^2.51.2",
-    "websocket-client": "^1.0.0"
-  }
-}
