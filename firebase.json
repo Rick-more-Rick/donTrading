@@ -1,21 +1,15 @@
 {
   "hosting": {
-    "public": ".",
+    "public": "landingDePago",
     "ignore": [
       "firebase.json",
       "**/.*",
-      "**/node_modules/**",
-      "app/src/**",
-      "app/node_modules/**"
+      "**/node_modules/**"
     ],
     "rewrites": [
       {
-        "source": "/app/**",
-        "destination": "/app/dist/index.html"
-      },
-      {
         "source": "**",
-        "destination": "/landingDePago/index.html"
+        "destination": "/index.html"
       }
     ]
   }
