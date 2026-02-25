@@ -1,15 +1,15 @@
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗
- * ║  WidgetLibroOrdenes.js — Libro de Órdenes Autónomo v4                  ║
+ * ║  WidgetLibroOrdenes.js — Libro de Órdenes Autónomo v5                  ║
  * ╠══════════════════════════════════════════════════════════════════════════╣
  * ║  Arquitectura AUTÓNOMA (sin dependencias externas):                     ║
  * ║    · WebSocket propio → ws://host:puertoBook (orderbook.py)            ║
  * ║    · _OBStore    — capa de datos (niveles de precio)                   ║
- * ║    · _OBRenderer — scroll virtual de filas DOM                         ║
+ * ║    · _OBRenderer — scroll virtual de filas DOM completamente desacoplado║
  * ║    · _OBCanvas   — canvas de barras de profundidad                     ║
  * ║    · Vinculado al bus:                                                  ║
  * ║        CAMBIO_ACTIVO  → limpiar + subscribe al nuevo símbolo           ║
- * ║        CAMBIO_PRECIO  → ajustar rowHeight (zoom sync con gráfica)      ║
+ * ║    · Zoom propio (botones − / ● / +) independiente del chart           ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  */
 
@@ -21,130 +21,223 @@
     const s = document.createElement('style');
     s.id = 'ob4-styles';
     s.textContent = `
+/* ── Reset base ─────────────────────────────────────────── */
 .ob4-root {
     display:flex; flex-direction:column; height:100%; width:100%;
     overflow:hidden; font-family:'Outfit','Segoe UI',sans-serif;
-    background:var(--bg-secondary,#111827); color:var(--text-primary,#e2e8f0);
-    --ob4-green:#22c55e; --ob4-green-l:#86efac; --ob4-green-t:#4ade80;
-    --ob4-red:#ef4444;   --ob4-red-l:#fca5a5;   --ob4-red-t:#f87171;
-    --ob4-amber:#f59e0b; --ob4-border:#1e293b;   --ob4-muted:#475569;
-    --ob4-row-h:18px;
+    background:#0d1117; color:#c9d1d9;
+    --green:#22c55e; --green-l:#bbf7d0; --green-t:rgba(34,197,94,.28);
+    --red:#ef4444;   --red-l:#fecaca;   --red-t:rgba(239,68,68,.24);
+    --amber:#f59e0b; --border:#21262d; --muted:#8b949e;
+    --row-h:20px;
 }
-/* Header */
+/* ── Animación de ecualizador para las barras ───────────────── */
+@keyframes ob4-bid-pulse {
+    0%   { box-shadow: 2px 0 8px rgba(34,197,94,.0); }
+    40%  { box-shadow: 2px 0 12px rgba(34,197,94,.9); }
+    100% { box-shadow: 2px 0 4px  rgba(34,197,94,.0); }
+}
+@keyframes ob4-ask-pulse {
+    0%   { box-shadow: -2px 0 8px rgba(239,68,68,.0); }
+    40%  { box-shadow: -2px 0 12px rgba(239,68,68,.9); }
+    100% { box-shadow: -2px 0 4px  rgba(239,68,68,.0); }
+}
+.ob4-bar-bid-pulse { animation: ob4-bid-pulse 0.22s ease-out !important; }
+.ob4-bar-ask-pulse { animation: ob4-ask-pulse 0.22s ease-out !important; }
+/* ── Header ─────────────────────────────────────────────── */
 .ob4-header {
-    padding:6px 10px; border-bottom:1px solid var(--ob4-border);
-    display:flex; align-items:center; justify-content:space-between;
-    height:28px; flex-shrink:0;
+    display:flex; align-items:center; gap:6px;
+    padding:4px 8px; height:30px; flex-shrink:0;
+    border-bottom:1px solid var(--border);
+    background:#161b22;
 }
-.ob4-title { font-size:12px; font-weight:600; }
-.ob4-status { font-size:10px; color:var(--ob4-muted); transition:color .3s; }
-.ob4-status.ok { color:var(--ob4-green); }
-
-/* Summary */
-.ob4-summary {
-    display:flex; border-bottom:1px solid var(--ob4-border); flex-shrink:0;
-}
-.ob4-side { flex:1; padding:6px 8px; text-align:center; }
-.ob4-side.bid { border-right:1px solid var(--ob4-border); }
-.ob4-side-lbl {
-    font-size:8px; text-transform:uppercase; letter-spacing:1px;
-    color:var(--ob4-muted); margin-bottom:2px;
-}
-.ob4-side.bid .ob4-side-lbl { color:var(--ob4-green-t); }
-.ob4-side.ask .ob4-side-lbl { color:var(--ob4-red-t); }
-.ob4-side-price {
-    font-family:'Outfit',sans-serif; font-size:16px; font-weight:700; display:block;
-}
-.ob4-side.bid .ob4-side-price { color:var(--ob4-green-l); }
-.ob4-side.ask .ob4-side-price { color:var(--ob4-red-l); }
-
-/* Mid row */
-.ob4-mid {
+.ob4-title { font-size:11px; font-weight:700; letter-spacing:.5px; flex:1; color:#e6edf3; }
+.ob4-status { font-size:10px; color:var(--muted); transition:color .3s; }
+.ob4-status.ok { color:var(--green); }
+/* zoom buttons */
+.ob4-zoom { display:flex; align-items:center; gap:2px; }
+.ob4-zoom button {
+    background:#21262d; border:1px solid #30363d; color:var(--muted);
+    font-size:12px; font-weight:700; width:18px; height:18px;
+    border-radius:3px; cursor:pointer; padding:0;
     display:flex; align-items:center; justify-content:center;
-    padding:3px 8px; gap:10px; flex-shrink:0; min-height:24px;
-    background:rgba(245,158,11,.08);
-    border-top:1px solid rgba(245,158,11,.2);
-    border-bottom:1px solid rgba(245,158,11,.2);
-    font-family:'Outfit',sans-serif; font-size:11px; font-weight:600;
-    color:var(--ob4-amber);
+    transition:background .12s, color .12s;
 }
-.ob4-mid-spd { font-size:9px; font-weight:400; color:#94a3b8; }
-
-/* Table */
-.ob4-table-wrap {
-    flex:1; display:flex; flex-direction:column;
-    overflow:hidden; position:relative;
+.ob4-zoom button:hover { background:rgba(245,158,11,.2); color:var(--amber); border-color:var(--amber); }
+.ob4-zoom-lbl { font-size:8px; color:var(--muted); width:22px; text-align:center; font-family:monospace; }
+/* ── Sesión de mercado badge ─────────────────────────────── */
+.ob4-session-badge {
+    font-size:8px; font-weight:700; letter-spacing:.5px;
+    padding:1px 5px; border-radius:3px; text-transform:uppercase;
+    border:1px solid transparent; line-height:14px; flex-shrink:0;
 }
+.ob4-sess-open   { background:rgba(34,197,94,.15);  color:var(--green);   border-color:rgba(34,197,94,.3); }
+.ob4-sess-pre    { background:rgba(56,189,248,.12);  color:#38bdf8;        border-color:rgba(56,189,248,.3); }
+.ob4-sess-after  { background:rgba(251,146,60,.12);  color:#fb923c;        border-color:rgba(251,146,60,.3); }
+.ob4-sess-closed { background:rgba(239,68,68,.1);   color:var(--red);     border-color:rgba(239,68,68,.25); }
+/* ── Summary (best bid/ask) ──────────────────────────────── */
+.ob4-summary {
+    display:flex; border-bottom:1px solid var(--border); flex-shrink:0; background:#161b22;
+}
+.ob4-side { flex:1; padding:5px 8px; text-align:center; }
+.ob4-side.bid { border-right:1px solid var(--border); }
+.ob4-side-lbl { font-size:8px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin-bottom:1px; }
+.ob4-side.bid .ob4-side-lbl { color:var(--green); }
+.ob4-side.ask .ob4-side-lbl { color:var(--red); }
+.ob4-side-price { font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:700; display:block; }
+.ob4-side.bid .ob4-side-price { color:var(--green-l); }
+.ob4-side.ask .ob4-side-price { color:var(--red-l); }
+/* ── Mid / spread ────────────────────────────────────────── */
+.ob4-mid {
+    display:flex; align-items:center; justify-content:center; gap:10px;
+    padding:2px 8px; min-height:22px; flex-shrink:0;
+    background:rgba(245,158,11,.06);
+    border-top:1px solid rgba(245,158,11,.18); border-bottom:1px solid rgba(245,158,11,.18);
+    font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:600; color:var(--amber);
+}
+.ob4-mid-spd { font-size:9px; font-weight:400; color:var(--muted); }
+/* ── Table wrapper ───────────────────────────────────────── */
+.ob4-table-wrap { flex:1; display:flex; flex-direction:column; overflow:hidden; position:relative; }
+/* Column header */
 .ob4-col-hdr {
-    display:flex; align-items:center; padding:3px 4px;
-    font-size:8px; font-weight:500; color:var(--ob4-muted);
-    text-transform:uppercase; letter-spacing:.4px;
-    border-bottom:1px solid var(--ob4-border); flex-shrink:0;
-    background:var(--bg-secondary,#111827); z-index:2; position:relative;
+    display:grid;
+    grid-template-columns: 1fr 62px 56px 62px 1fr;
+    align-items:center; height:20px; flex-shrink:0;
+    border-bottom:1px solid var(--border); background:#161b22;
+    font-size:8px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:var(--muted);
+    padding:0;
 }
-.ob4-col-hdr span { text-align:center; }
-.ob4-col-hdr .h-monto { width:44px; text-align:right; }
-.ob4-col-hdr .h-acum  { width:36px; text-align:right; }
-.ob4-col-hdr .h-qty   { width:34px; text-align:right; }
-.ob4-col-hdr .h-bid   { flex:1; text-align:right; color:var(--ob4-green-t); padding-right:4px; }
-.ob4-col-hdr .h-ask   { flex:1; text-align:left;  color:var(--ob4-red-t);   padding-left:4px; }
-
+.ob4-col-hdr .h-bid-acum { text-align:right; color:rgba(34,197,94,.6); padding-right:6px; }
+.ob4-col-hdr .h-bid-px   { text-align:right; padding-right:4px; border-left:1px solid var(--border); padding-left:2px; }
+.ob4-col-hdr .h-monto    { text-align:center; color:rgba(245,158,11,.55); font-size:7px; letter-spacing:0; }
+.ob4-col-hdr .h-ask-px   { text-align:left;  padding-left:4px;  border-right:1px solid var(--border); padding-right:2px; }
+.ob4-col-hdr .h-ask-acum { text-align:left;  color:rgba(239,68,68,.6);  padding-left:6px; }
 /* Viewport */
 .ob4-vp {
     flex:1; overflow-y:auto; overflow-x:hidden; position:relative;
-    scrollbar-width:thin; scrollbar-color:#1e293b transparent;
+    scrollbar-width:thin; scrollbar-color:#21262d transparent;
 }
 .ob4-vp::-webkit-scrollbar { width:3px; }
-.ob4-vp::-webkit-scrollbar-thumb { background:#1e293b; border-radius:2px; }
+.ob4-vp::-webkit-scrollbar-thumb { background:#30363d; border-radius:2px; }
 .ob4-spacer { width:100%; pointer-events:none; }
 .ob4-pool { position:absolute; top:0; left:0; right:0; will-change:transform; }
-
-/* Filas */
+/* ── Rows ────────────────────────────────────────────────── */
 .ob4-row {
-    display:flex; align-items:center; height:var(--ob4-row-h,18px);
-    min-height:var(--ob4-row-h,18px); position:relative;
-    font-family:'JetBrains Mono',monospace; font-size:9px;
-    overflow:hidden; padding:0 4px;
-    transition:background .12s ease;
+    display:grid;
+    grid-template-columns: 1fr 62px 56px 62px 1fr;
+    align-items:stretch; height:var(--row-h,20px);
+    min-height:var(--row-h,20px); position:relative; overflow:hidden;
+    font-family:'JetBrains Mono',monospace; font-size:9.5px;
+    border-bottom:1px solid rgba(33,38,45,.5);
+    transition:background .08s;
 }
-.ob4-row:hover { background:rgba(148,163,184,.06) !important; }
-.ob4-row.best-row { background:rgba(245,158,11,.06); }
-.ob4-row span { z-index:1; position:relative; text-shadow:0 0 4px rgba(0,0,0,.9); }
-.ob4-row .c-monto { width:44px; text-align:right; color:#94a3b8; font-size:8px; }
-.ob4-row .c-acum  { width:36px; text-align:right; color:#64748b; font-size:8px; }
-.ob4-row .c-qty   { width:34px; text-align:right; color:#e2e8f0; }
-.ob4-row .c-bid   { flex:1; text-align:right; padding-right:4px; color:var(--ob4-green-l); font-weight:500; }
-.ob4-row .c-ask   { flex:1; text-align:left;  padding-left:4px;  color:var(--ob4-red-l);   font-weight:500; }
-.ob4-row .empty   { color:#1e293b !important; }
-.ob4-row .filler  { color:#334155 !important; font-weight:400 !important; }
-.ob4-row .real-bid { color:var(--ob4-green-l) !important; font-weight:600 !important; }
-.ob4-row .real-ask { color:var(--ob4-red-l)   !important; font-weight:600 !important; }
-
-/* Canvas overlay */
-.ob4-canvas {
-    position:absolute; top:0; left:0; width:100%; height:100%;
-    pointer-events:none; z-index:0;
+/* ── Acum Bid (columna izquierda) — barra ecualizador + texto acum ─ */
+.c-bid-acum {
+    display:flex; align-items:center; justify-content:flex-end;
+    position:relative; overflow:hidden; padding-right:5px;
 }
-
+.c-bid-acum .c-bar {
+    position:absolute; right:0; top:0; bottom:0;
+    background: linear-gradient(to left,
+        rgba(34,197,94,.55) 0%,
+        rgba(34,197,94,.28) 60%,
+        rgba(34,197,94,.08) 100%);
+    border-left: 1.5px solid rgba(34,197,94,.80);
+    transition: width 0.06s cubic-bezier(0.25,0.46,0.45,0.94);
+    pointer-events:none;
+}
+.c-bid-acum .c-acum-txt {
+    position:relative; z-index:1;
+    font-size:8.5px; color:rgba(34,197,94,.9); font-weight:600;
+    white-space:nowrap;
+}
+.c-bid-acum .c-acum-txt.is-synth { opacity:0.45; font-weight:400; }
+/* ── Acum Ask (columna derecha) — barra ecualizador + texto acum ─ */
+.c-ask-acum {
+    display:flex; align-items:center; justify-content:flex-start;
+    position:relative; overflow:hidden; padding-left:5px;
+}
+.c-ask-acum .c-bar {
+    position:absolute; left:0; top:0; bottom:0;
+    background: linear-gradient(to right,
+        rgba(239,68,68,.55) 0%,
+        rgba(239,68,68,.24) 60%,
+        rgba(239,68,68,.08) 100%);
+    border-right: 1.5px solid rgba(239,68,68,.80);
+    transition: width 0.06s cubic-bezier(0.25,0.46,0.45,0.94);
+    pointer-events:none;
+}
+.c-ask-acum .c-acum-txt {
+    position:relative; z-index:1;
+    font-size:8.5px; color:rgba(239,68,68,.9); font-weight:600;
+    white-space:nowrap;
+}
+.c-ask-acum .c-acum-txt.is-synth { opacity:0.45; font-weight:400; }
+.ob4-row:hover { background:rgba(56,68,77,.35) !important; }
+/* Best bid/ask highlight */
+.ob4-row.is-best-row { background:rgba(245,158,11,.05); }
+.ob4-row.is-best-row .c-bid-px { color:var(--green-l); font-weight:700; }
+.ob4-row.is-best-row .c-ask-px { color:var(--red-l);   font-weight:700; }
+/* Filas con datos reales de exchange (más énfasis) */
+.ob4-row.bid-real { background:rgba(34,197,94,.04); border-left:2px solid rgba(34,197,94,.35); }
+.ob4-row.ask-real { background:rgba(239,68,68,.04);  border-right:2px solid rgba(239,68,68,.35); }
+.ob4-row.bid-real.ask-real { background:rgba(245,158,11,.04); }
+/* Bid price column (center-left) */
+.c-bid-px {
+    display:flex; align-items:center; justify-content:flex-end;
+    padding-right:5px; padding-left:2px;
+    color:var(--green-l); font-size:9.5px; font-weight:500; letter-spacing:.2px;
+    border-left:1px solid var(--border); flex-shrink:0;
+    white-space:nowrap;
+}
+.c-bid-px.is-empty { color:#30363d; }
+/* ── Monto (total negociado en el nivel) ─── columna central ─ */
+.c-monto {
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:0 2px; overflow:hidden; position:relative;
+    border-left:1px solid rgba(245,158,11,.12);
+    border-right:1px solid rgba(245,158,11,.12);
+    background:rgba(245,158,11,.025);
+}
+.m-bid {
+    font-size:7.5px; color:rgba(34,197,94,.75); font-weight:500;
+    white-space:nowrap; line-height:1.25;
+}
+.m-ask {
+    font-size:7.5px; color:rgba(239,68,68,.75);  font-weight:500;
+    white-space:nowrap; line-height:1.25;
+}
+.m-bid.is-synth { opacity:.45; }
+.m-ask.is-synth { opacity:.45; }
+/* Ask price column (center-right) */
+.c-ask-px {
+    display:flex; align-items:center; justify-content:flex-start;
+    padding-left:5px; padding-right:2px;
+    color:var(--red-l); font-size:9.5px; font-weight:500; letter-spacing:.2px;
+    border-right:1px solid var(--border); flex-shrink:0;
+    white-space:nowrap;
+}
+.c-ask-px.is-empty { color:#30363d; }
 /* Footer */
 .ob4-footer {
-    padding:4px 10px; border-top:1px solid var(--ob4-border);
-    font-size:9px; color:var(--ob4-muted);
-    display:flex; justify-content:space-between; flex-shrink:0;
+    padding:3px 10px; border-top:1px solid var(--border); flex-shrink:0;
+    font-size:8px; color:var(--muted); display:flex; justify-content:space-between;
+    background:#161b22;
 }
-
-/* Tooltip hover */
+/* Tooltip */
 .ob4-tip {
-    position:fixed; z-index:200; background:rgba(15,23,42,.95);
-    border:1px solid rgba(59,130,246,.3); border-radius:6px;
-    padding:6px 10px; font-family:'JetBrains Mono',monospace;
-    font-size:10px; color:#e2e8f0; pointer-events:none;
-    display:none; backdrop-filter:blur(8px);
-    white-space:nowrap; box-shadow:0 4px 12px rgba(0,0,0,.4);
+    position:fixed; z-index:200; background:rgba(13,17,23,.95);
+    border:1px solid rgba(56,139,253,.3); border-radius:5px;
+    padding:5px 9px; font-family:'JetBrains Mono',monospace;
+    font-size:10px; color:#c9d1d9; pointer-events:none;
+    display:none; backdrop-filter:blur(8px); white-space:nowrap;
+    box-shadow:0 4px 16px rgba(0,0,0,.5);
 }
 `;
     document.head.appendChild(s);
 })();
+
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  _OBStore — Capa de datos (niveles infinitos de precio)
@@ -162,23 +255,28 @@ class _OBStore {
         this._step = 0.01;
         this._maxLevels = 500;
         this._BASE_LEVELS = 500;
+        // Acumulador persistente de notional por precio (no se resetea entre snapshots)
+        // Clave: precio snapeado  Valor: suma acumulada de precio×qty de todos los snapshots
+        this._notionalAccum = new Map();
+        // Qty vista en el snapshot anterior (para detectar cambios reales)
+        this._prevQty = new Map();
+        // Qty acumulada históricamente por precio (para la columna Acum — independiente por fila)
+        this._qtyAccum = new Map();
     }
 
     /**
-     * Paso dinámico según el precio del activo:
-     * <$10     → $0.001  (pennystock)
-     * $10-999  → $0.01   (stocks normales)
-     * $1000+   → $0.10   (acciones caras / ETFs)
-     * $5000+   → $0.50   (crypto mid-range)
-     * $10000+  → $1.00   (BTC)
+     * Paso dinámico = 0.04% del precio, redondeado al incremento "limpio" más cercano.
+     * Ejemplos: $274 → raw=$0.110 → paso=$0.20  |  $50 → raw=$0.020 → paso=$0.02
+     *           $100 → raw=$0.040 → paso=$0.05  |  $10k → raw=$4.00 → paso=$5.00
      */
     _computeStep(price) {
         if (!price || price <= 0) return 0.01;
-        if (price >= 10000) return 1.00;
-        if (price >= 5000) return 0.50;
-        if (price >= 1000) return 0.10;
-        if (price >= 10) return 0.01;
-        return 0.001;
+        const raw = price * 0.0004;   // 0.04 % del precio
+        // Incrementos "bonitos" ordenados de menor a mayor
+        const NICE = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05,
+            0.10, 0.20, 0.50, 1.00, 2.00, 5.00, 10.00, 20.00, 50.00];
+        for (const s of NICE) { if (s >= raw) return s; }
+        return 50.00;
     }
 
     /** Redondea al step exacto para evitar floating-point drift */
@@ -214,21 +312,78 @@ class _OBStore {
         }
 
         // Construir mapas con snap al step
+        // Notar: el backend ahora envía niveles interpolados con 'interpolado:true'
+        // Los de precio real tienen qty>0 y interpolado=false
         this.bidMap.clear();
         for (const l of (book.bids || [])) {
             if (!l || !l.precio || !l.tamano) continue;
             const p = this._snap(l.precio);
-            this.bidMap.set(p, (this.bidMap.get(p) || 0) + l.tamano);
+            // Preservar el flag: si ya hay un nivel real no sobreescribir con interpolado
+            const prev = this.bidMap.get(p);
+            const isReal = !l.interpolado;
+            if (!prev || isReal) {
+                this.bidMap.set(p, { qty: (prev && !isReal ? prev.qty : 0) + l.tamano, real: isReal || (prev && prev.real) });
+            } else {
+                // Nivel interpolado sobre uno ya existente: sumar qty pero mantener real=true
+                this.bidMap.set(p, { qty: prev.qty + l.tamano, real: prev.real });
+            }
         }
 
         this.askMap.clear();
         for (const l of (book.asks || [])) {
             if (!l || !l.precio || !l.tamano) continue;
             const p = this._snap(l.precio);
-            this.askMap.set(p, (this.askMap.get(p) || 0) + l.tamano);
+            const prev = this.askMap.get(p);
+            const isReal = !l.interpolado;
+            if (!prev || isReal) {
+                this.askMap.set(p, { qty: (prev && !isReal ? prev.qty : 0) + l.tamano, real: isReal || (prev && prev.real) });
+            } else {
+                this.askMap.set(p, { qty: prev.qty + l.tamano, real: prev.real });
+            }
         }
 
         this._rebuild();
+
+        // ── Acumular notional por precio tras el rebuild ────────────────────────────
+        // Solo acumulamos niveles REALES del exchange (no sintéticos/interpolados).
+        // Detectamos el delta de qty (aumento vs snapshot anterior) para evitar
+        // duplicar la misma orden que ya contábamos en frames anteriores.
+        for (const [price, { qty, real }] of this.bidMap) {
+            if (!real || qty <= 0) continue;
+            const prev = this._prevQty.get(price) ?? 0;
+            if (qty > prev) {
+                const delta = qty - prev;
+                // Acumular notional ($) por precio
+                this._notionalAccum.set(price,
+                    (this._notionalAccum.get(price) ?? 0) + delta * price);
+                // Acumular qty por precio (independiente, sin sumar otras filas)
+                this._qtyAccum.set(price,
+                    (this._qtyAccum.get(price) ?? 0) + delta);
+            }
+            this._prevQty.set(price, qty);
+        }
+        for (const [price, { qty, real }] of this.askMap) {
+            if (!real || qty <= 0) continue;
+            const prev = this._prevQty.get(price) ?? 0;
+            if (qty > prev) {
+                const delta = qty - prev;
+                this._notionalAccum.set(price,
+                    (this._notionalAccum.get(price) ?? 0) + delta * price);
+                this._qtyAccum.set(price,
+                    (this._qtyAccum.get(price) ?? 0) + delta);
+            }
+            this._prevQty.set(price, qty);
+        }
+    }
+
+    /** Notional total acumulado en ese nivel de precio */
+    notionalAt(price) {
+        return this._notionalAccum.get(price) ?? 0;
+    }
+
+    /** Qty total acumulada en ese nivel de precio (independiente por fila) */
+    qtyAccumAt(price) {
+        return this._qtyAccum.get(price) ?? 0;
     }
 
     reset() {
@@ -237,8 +392,23 @@ class _OBStore {
         this.bidArray = [];
         this.askArray = [];
         this.midPrice = this.bestBid = this.bestAsk = this.spread = 0;
-        this._maxLevels = this._BASE_LEVELS;   // ← CRUCIAL al cambiar activo
+        this._maxLevels = this._BASE_LEVELS;
         this._step = 0.01;
+        // Limpiar acumuladores al cambiar de activo
+        this._notionalAccum.clear();
+        this._prevQty.clear();
+        this._qtyAccum.clear();
+    }
+
+    /**
+     * Volumen sintético determinista para el nivel `i` beyond the data edge.
+     * Usa función senoidal para variación cíclica sin aleatoriedad.
+     */
+    _synthVol(baseVol, i) {
+        if (baseVol <= 0) return 0;
+        const decay = Math.pow(0.92, i);
+        const noise = 0.7 + 0.6 * Math.abs(Math.sin(i * 1.618) * Math.cos(i * 0.5));
+        return Math.max(1, Math.round(baseVol * decay * noise));
     }
 
     _rebuild() {
@@ -251,65 +421,138 @@ class _OBStore {
         const askStart = this.bestAsk > 0 ? this._snap(this.bestAsk)
             : this.midPrice > 0 ? this._snap(this.midPrice + step) : 0;
 
-        // BIDS: desde bidStart hacia abajo
+        // BIDS: desde bidStart hacia abajo con vol sintético donde no hay datos
         if (bidStart <= 0) {
             this.bidArray = [];
         } else {
             this.bidArray = [];
-            let cum = 0, cumM = 0;
+            let cum = 0, cumReal = 0, cumM = 0;
+            let lastVol = 0, synthIdx = 0;
             let p = bidStart;
             for (let i = 0; i < n; i++) {
-                const qty = this.bidMap.get(p) || 0;
+                const entry = this.bidMap.get(p);
+                let qty, real;
+                if (entry && entry.qty > 0) {
+                    qty = entry.qty;
+                    real = entry.real;
+                    lastVol = qty;
+                    synthIdx = 0;
+                } else {
+                    synthIdx++;
+                    qty = this._synthVol(lastVol, synthIdx);
+                    real = false;
+                }
                 cum += qty;
-                cumM += qty * p;
-                this.bidArray.push({ price: p, qty, cumQty: cum, monto: cumM, real: qty > 0 });
+                if (real) { cumReal += qty; cumM += qty * p; }
+                this.bidArray.push({ price: p, qty, cumQty: cum, cumReal, monto: cumM, real });
                 p = this._snap(p - step);
-                if (p <= 0) break;   // seguridad: nunca precio negativo
+                if (p <= 0) break;
             }
         }
 
-        // ASKS: desde askStart hacia arriba
+        // ASKS: desde askStart hacia arriba con vol sintético donde no hay datos
         if (askStart <= 0) {
             this.askArray = [];
         } else {
             this.askArray = [];
-            let cum = 0, cumM = 0;
+            let cum = 0, cumReal = 0, cumM = 0;
+            let lastVol = 0, synthIdx = 0;
             let p = askStart;
             for (let i = 0; i < n; i++) {
-                const qty = this.askMap.get(p) || 0;
+                const entry = this.askMap.get(p);
+                let qty, real;
+                if (entry && entry.qty > 0) {
+                    qty = entry.qty;
+                    real = entry.real;
+                    lastVol = qty;
+                    synthIdx = 0;
+                } else {
+                    synthIdx++;
+                    qty = this._synthVol(lastVol, synthIdx);
+                    real = false;
+                }
                 cum += qty;
-                cumM += qty * p;
-                this.askArray.push({ price: p, qty, cumQty: cum, monto: cumM, real: qty > 0 });
+                if (real) { cumReal += qty; cumM += qty * p; }
+                this.askArray.push({ price: p, qty, cumQty: cum, cumReal, monto: cumM, real });
                 p = this._snap(p + step);
             }
         }
     }
 
-    /** Expande bajo demanda cuando el scroll se acerca al borde */
+
+    /**
+     * Expande bajo demanda cuando el scroll se acerca al borde.
+     * Para precios fuera del rango del backend (bidMap/askMap vacío),
+     * genera volúmenes sintéticos con decaimiento exponencial determinista
+     * (sin aleatoriedad — usa seno del índice para evitar parpadeo).
+     */
     ensureLevels(n) {
         if (n > this._maxLevels) this._maxLevels = n;
         const step = this._step;
 
+
+        // ── BIDS (hacia abajo) ───────────────────────────────────────────────
         if (this.bidArray.length > 0 && this.bidArray.length < n) {
+            // Encontrar el último volumen real/sintético significativo como base
+            let lastVol = 0;
+            let synthIdx = 0;
+            for (let i = this.bidArray.length - 1; i >= 0; i--) {
+                if (this.bidArray[i].qty > 0) { lastVol = this.bidArray[i].qty; break; }
+            }
+
             let last = this.bidArray[this.bidArray.length - 1];
-            let cum = last.cumQty, cumM = last.monto || 0;
+            let cum = last.cumQty, cumReal = last.cumReal || 0, cumM = last.monto || 0;
             let p = this._snap(last.price - step);
+
             while (this.bidArray.length < n && p > 0) {
-                const qty = this.bidMap.get(p) || 0;
-                cum += qty; cumM += qty * p;
-                this.bidArray.push({ price: p, qty, cumQty: cum, monto: cumM, real: qty > 0 });
+                const entry = this.bidMap.get(p);
+                let qty, real;
+                if (entry && entry.qty > 0) {
+                    qty = entry.qty;
+                    real = entry.real;
+                    lastVol = qty;   // reiniciar base con dato real
+                    synthIdx = 0;
+                } else {
+                    // Generar volumen sintético decreciente
+                    synthIdx++;
+                    qty = this._synthVol(lastVol, synthIdx);
+                    real = false;
+                }
+                cum += qty;
+                if (real) { cumReal += qty; cumM += qty * p; }
+                this.bidArray.push({ price: p, qty, cumQty: cum, cumReal, monto: cumM, real });
                 p = this._snap(p - step);
             }
         }
 
+        // ── ASKS (hacia arriba) ──────────────────────────────────────────────
         if (this.askArray.length > 0 && this.askArray.length < n) {
+            let lastVol = 0;
+            let synthIdx = 0;
+            for (let i = this.askArray.length - 1; i >= 0; i--) {
+                if (this.askArray[i].qty > 0) { lastVol = this.askArray[i].qty; break; }
+            }
+
             let last = this.askArray[this.askArray.length - 1];
-            let cum = last.cumQty, cumM = last.monto || 0;
+            let cum = last.cumQty, cumReal = last.cumReal || 0, cumM = last.monto || 0;
             let p = this._snap(last.price + step);
+
             while (this.askArray.length < n) {
-                const qty = this.askMap.get(p) || 0;
-                cum += qty; cumM += qty * p;
-                this.askArray.push({ price: p, qty, cumQty: cum, monto: cumM, real: qty > 0 });
+                const entry = this.askMap.get(p);
+                let qty, real;
+                if (entry && entry.qty > 0) {
+                    qty = entry.qty;
+                    real = entry.real;
+                    lastVol = qty;
+                    synthIdx = 0;
+                } else {
+                    synthIdx++;
+                    qty = this._synthVol(lastVol, synthIdx);
+                    real = false;
+                }
+                cum += qty;
+                if (real) { cumReal += qty; cumM += qty * p; }
+                this.askArray.push({ price: p, qty, cumQty: cum, cumReal, monto: cumM, real });
                 p = this._snap(p + step);
             }
         }
@@ -332,9 +575,17 @@ class _OBStore {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  _OBRenderer — Scroll virtual de filas DOM
+//  _OBRenderer — Price Ladder (Saxo FX) — tabla unificada con scroll infinito
+//
+//  layout de arriba hacia abajo:
+//    fila 0 … N-1  → asks [N-1 … 0]  (ask más cara arriba, bestAsk abajo)
+//    fila N        → fila spread (separador)
+//    fila N+1 …    → bids [0 … ∞]   (bestBid primero, bajando infinitamente)
 // ─────────────────────────────────────────────────────────────────────────────
 class _OBRenderer {
+    /** Nº de filas extra fuera del viewport (arriba + abajo) para suavizar scroll */
+    static get BUFFER() { return 5; }
+
     constructor(store, els) {
         this.store = store;
         this.vp = els.vp;
@@ -346,97 +597,276 @@ class _OBRenderer {
         this.bidEl = els.bestBid;
         this.askEl = els.bestAsk;
         this._rows = [];
-        this._rowH = 18;
-        this._lastInfo = null;
+        this._rowH = 20;
         this._lastSH = 0;
+        this._centered = false;
+        this._lastInfo = null;
+        this._vpH = 0;          // altura real del viewport (actualizada por ResizeObserver)
+        this._poolReady = false; // true cuando el pool ya está pre-creado para el viewport
+
+        // ── ResizeObserver: detectar cambios de tamaño del contenedor ─────────
+        // contentRect.height puede ser 0 en elementos flex; usamos también
+        // getBoundingClientRect como respaldo para garantizar un valor real.
+        this._ro = new ResizeObserver(entries => {
+            for (const e of entries) {
+                // Preferir getBoundingClientRect (incluye el tamaño CSS real del flex child)
+                const h = e.target.getBoundingClientRect().height ||
+                    e.contentRect.height;
+                if (h !== this._vpH) {
+                    this._vpH = h;
+                    this._poolReady = false;
+                }
+            }
+        });
+        this._ro.observe(this.vp);
     }
 
-    setRowHeight(h) { this._rowH = Math.max(8, Math.min(80, h)); }
+    setRowHeight(h) {
+        this._rowH = Math.max(10, Math.min(60, h));
+        this._lastSH = 0;       // fuerza re-calculo del spacer
+        this._centered = false; // re-centrar con nueva altura
+        this._poolReady = false; // recalcular pool para nueva altura de fila
+    }
 
+    /** Centra en top: fila 0 = best bid | best ask */
+    centerOnMid() {
+        if (!this.store.bidArray.length && !this.store.askArray.length) return;
+        this.vp.scrollTop = 0;
+        this._centered = true;
+    }
+
+    /**
+     * Cada fila global index i = { bid: bidArray[i], ask: askArray[i] }
+     * No hay inversión, no hay spread row — ambas columnas desde best hacia abajo.
+     */
     render() {
-        // CORREGIDO: no esperar midPrice — usar bestBid o bestAsk como fallback
-        const refPrice = this.store.midPrice || this.store.bestBid || this.store.bestAsk;
-        if (!refPrice) return null;
-
-        const _fp = v => v >= 1000
-            ? '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-            : '$' + v.toFixed(2);
-
-        this._set(this.midEl, _fp(this.store.midPrice));
-        this._set(this.spdEl, '$' + this.store.spread.toFixed(4));
-        this._set(this.bidEl, _fp(this.store.bestBid));
-        this._set(this.askEl, _fp(this.store.bestAsk));
+        const s = this.store;
+        if (!s.bestBid && !s.bestAsk && !s.midPrice) return null;
 
         const rowH = this._rowH;
-        let totalRows = this.store.totalLevels;
-        if (totalRows === 0) return null;
+        const step = s._step || 0.01;
+        const dec = step < 0.01 ? 3 : 2;
 
-        const vpH = this.vp.clientHeight;
-        const scrollTop = this.vp.scrollTop;
-        const startIdx = Math.max(0, Math.floor(scrollTop / rowH) - 2);
-        const visCount = Math.ceil(vpH / rowH) + 5;
-        const neededEnd = startIdx + visCount;
+        // ── Formatters ────────────────────────────────────────────────────
+        const _fp = v => {
+            if (!v) return '—';
+            if (v >= 1000) return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            return v.toFixed(dec);
+        };
+        const _fmtFull = v => !v ? '$—' : '$' + _fp(v);
+        const _fq = v => {
+            if (!v || v <= 0) return '';
+            if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+            if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+            return String(Math.round(v));
+        };
 
-        if (neededEnd + 50 > totalRows) {
-            this.store.ensureLevels(neededEnd + 150);
-            totalRows = this.store.totalLevels;
+        // ── Debug: primera vez que hay datos ─────────────────────────────
+        if (!this._debugLogged && s.bidArray.length > 0) {
+            this._debugLogged = true;
+            console.groupCollapsed('[OB] 🔍 Debug de datos — primeras 5 filas');
+            for (let i = 0; i < Math.min(5, s.bidArray.length); i++) {
+                const b = s.bidArray[i], a = s.askArray[i];
+                console.log(`fila ${i}: bid=${b?.price} qty=${b?.qty} real=${b?.real} | ask=${a?.price} qty=${a?.qty} real=${a?.real}`);
+            }
+            console.log('step:', s._step, '| bestBid:', s.bestBid, '| bestAsk:', s.bestAsk);
+            console.log('Pool rows DOM:', this._rows.length, '| ch[1] sample:', this._rows[0]?.el?.children[1]?.className);
+            console.groupEnd();
+            // Exponer en window para inspección desde DevTools
+            window.OBDebug = { store: s, renderer: this };
         }
 
-        const endIdx = Math.min(totalRows, neededEnd);
-        const actualCount = endIdx - startIdx;
-        const spacerH = (totalRows + 100) * rowH;
+        this._set(this.midEl, _fmtFull(s.midPrice));
+        this._set(this.spdEl, '$' + (s.spread || 0).toFixed(dec + 1));
+        this._set(this.bidEl, _fmtFull(s.bestBid));
+        this._set(this.askEl, _fmtFull(s.bestAsk));
 
-        if (Math.abs(spacerH - this._lastSH) > rowH) {
+        const bidLen = s.bidArray.length;
+        const askLen = s.askArray.length;
+        const totalRows = Math.max(bidLen, askLen);
+        if (totalRows === 0) return null;
+
+        // ── Spacer ────────────────────────────────────────────────────────
+        const spacerH = totalRows * rowH;
+        if (spacerH !== this._lastSH) {
             this.spacer.style.height = spacerH + 'px';
             this._lastSH = spacerH;
         }
-        this.wrapEl.style.setProperty('--ob4-row-h', rowH + 'px');
-        this._growPool(actualCount);
 
-        const poolTop = startIdx * rowH;
-        this.pool.style.transform = `translateY(${poolTop}px)`;
+        // ── Auto-centrar (scroll al top en primer dato) ───────────────────
+        if (!this._centered && totalRows > 0) this.centerOnMid();
 
-        const bbR = Math.round(this.store.bestBid * 100) / 100;
-        const baR = Math.round(this.store.bestAsk * 100) / 100;
+        // ── Rango visible ─────────────────────────────────────────────────
+        // Cascada de fallbacks para obtener la altura real del viewport:
+        //   1) _vpH  → mantenida por ResizeObserver (más precisa)
+        //   2) clientHeight → disponible una vez que el layout ha corrido
+        //   3) getBoundingClientRect → garantía final, evita vpH=0
+        const vpH = this._vpH ||
+            this.vp.clientHeight ||
+            this.vp.getBoundingClientRect().height;
+        const scrollTop = this.vp.scrollTop;
+        const startIdx = Math.max(0, Math.floor(scrollTop / rowH));
+        const BUFFER = _OBRenderer.BUFFER;
+        // visCount: mínimo 1 para que poolCount nunca colapse a sólo BUFFER*2
+        const visCount = Math.max(1, Math.ceil(vpH / rowH));
+        const poolCount = visCount + BUFFER * 2;
+        const bufferedStart = Math.max(0, startIdx - BUFFER);
+        const endIdx = Math.min(totalRows, bufferedStart + poolCount);
+        const count = endIdx - bufferedStart;
 
-        for (let i = 0; i < actualCount; i++) {
-            const di = startIdx + i;
-            const r = this._rows[i];
-            const ch = r.el.children;
-            const bid = this.store.bidArray[di] || null;
-            const ask = this.store.askArray[di] || null;
-
-            const isBB = bid && bid.real && bid.price === bbR;
-            const isBA = ask && ask.real && ask.price === baR;
-
-            let cls = 'ob4-row';
-            if (isBB || isBA) cls += ' best-row';
-            if (r.el.className !== cls) r.el.className = cls;
-
-            // Bid side: [0]=monto [1]=acum [2]=qty [3]=precio
-            this._set(ch[0], bid && bid.monto > 0 ? this._fmtM(bid.monto) : '');
-            this._set(ch[1], bid && bid.cumQty > 0 ? this._fmt(bid.cumQty) : '');
-            this._set(ch[2], bid && bid.qty > 0 ? this._fmt(bid.qty) : '');
-            this._set(ch[3], bid ? _fp(bid.price).replace('$', '') : '');
-            ch[3].className = 'c-bid' + (bid ? (bid.real ? '' : ' filler') : ' empty');
-            ch[2].className = 'c-qty' + (bid && bid.qty > 0 ? ' real-bid' : ' empty');
-            ch[1].className = 'c-acum' + (bid && bid.cumQty > 0 ? '' : ' empty');
-            ch[0].className = 'c-monto' + (bid && bid.monto > 0 ? '' : ' empty');
-
-            // Ask side: [4]=precio [5]=qty [6]=acum [7]=monto
-            this._set(ch[4], ask ? _fp(ask.price).replace('$', '') : '');
-            this._set(ch[5], ask && ask.qty > 0 ? this._fmt(ask.qty) : '');
-            this._set(ch[6], ask && ask.cumQty > 0 ? this._fmt(ask.cumQty) : '');
-            this._set(ch[7], ask && ask.monto > 0 ? this._fmtM(ask.monto) : '');
-            ch[4].className = 'c-ask' + (ask ? (ask.real ? '' : ' filler') : ' empty');
-            ch[5].className = 'c-qty' + (ask && ask.qty > 0 ? ' real-ask' : ' empty');
-            ch[6].className = 'c-acum' + (ask && ask.cumQty > 0 ? '' : ' empty');
-            ch[7].className = 'c-monto' + (ask && ask.monto > 0 ? '' : ' empty');
-
-            r.bidData = bid; r.askData = ask; r.dataIdx = di;
+        // ── Pre-crear pool al primer render con datos (o al resize) ───────
+        // No depende de vpH>0 para evitar que frames tempranos omitan la creación.
+        if (!this._poolReady) {
+            this._growPool(poolCount);
+            this._poolReady = true;
         }
 
-        this._lastInfo = { startIdx, actualCount, rowH, poolTop, vpH, scrollTop };
+        // ── Scroll infinito ── umbral proporcional al viewport ─────────────
+        // Activar expansión cuando el usuario esté a 2× el nº de filas visibles
+        // del borde del contenido generado.
+        const maxSide = Math.max(bidLen, askLen);
+        const triggerMargin = visCount * 2;   // umbral: 2× las filas visibles
+        const expansion = Math.max(200, visCount * 4);  // expansión generosa
+        if (endIdx + triggerMargin > maxSide && maxSide > 0) {
+            // Guardar scrollTop antes de expandir para evitar saltos visuales
+            // (el spacer crece hacia abajo por lo que no debería afectar,
+            // pero lo preservamos explícitamente como garantía).
+            const savedScroll = this.vp.scrollTop;
+            s.ensureLevels(maxSide + expansion);
+            if (this.vp.scrollTop !== savedScroll) this.vp.scrollTop = savedScroll;
+        }
+
+        this.wrapEl.style.setProperty('--row-h', rowH + 'px');
+        this._growPool(count);
+
+        // Desplazar el pool para mostrar las filas del rango con buffer
+        this.pool.style.transform = `translateY(${bufferedStart * rowH}px)`;
+
+        // ── maxVol del viewport (incluye buffer) para barras proporcionales ─
+        // Las barras usan qty puntual de cada nivel (efecto ecualizador independiente por fila).
+        let maxVol = 1;
+        for (let i = 0; i < count; i++) {
+            const gi = bufferedStart + i;
+            const b = s.bidArray[gi], a = s.askArray[gi];
+            if (b && b.qty > maxVol) maxVol = b.qty;
+            if (a && a.qty > maxVol) maxVol = a.qty;
+        }
+
+        // ── Renderizar filas (usando bufferedStart como origen global) ──────
+        // Layout 5 cols: [c-bid-acum][c-bid-px][c-monto][c-ask-px][c-ask-acum]
+        //   ch[0]=bid-acum (.c-bar, .c-acum-txt)
+        //   ch[1]=bid-px
+        //   ch[2]=monto    (.m-bid, .m-ask)
+        //   ch[3]=ask-px
+        //   ch[4]=ask-acum (.c-bar, .c-acum-txt)
+        for (let i = 0; i < count; i++) {
+            const gi = bufferedStart + i;
+            const r = this._rows[i];
+            const ch = r.el.children;
+
+            const bid = s.bidArray[gi];
+            const ask = s.askArray[gi];
+
+            const bidPx = bid ? bid.price : 0;
+            const askPx = ask ? ask.price : 0;
+            const bidQty = bid ? bid.qty : 0;
+            const askQty = ask ? ask.qty : 0;
+            const bidCum = bid ? bid.cumQty : 0;
+            const askCum = ask ? ask.cumQty : 0;
+            const bidReal = bid ? bid.real : false;
+            const askReal = ask ? ask.real : false;
+            const isBest = gi === 0;
+
+            // clase de fila
+            let cls = 'ob4-row';
+            if (isBest) cls += ' is-best-row';
+            if (bidReal) cls += ' bid-real';
+            if (askReal) cls += ' ask-real';
+            if (r.el.className !== cls) r.el.className = cls;
+
+            // ── ch[1] Bid price ──────────────────────────────────────────
+            const bidPxEl = ch[1];
+            this._set(bidPxEl, bidPx ? _fp(bidPx) : '—');
+            const bpCls = 'c-bid-px' + (!bidPx ? ' is-empty' : '');
+            if (bidPxEl.className !== bpCls) bidPxEl.className = bpCls;
+
+            // ── ch[3] Ask price ──────────────────────────────────────────
+            const askPxEl = ch[3];
+            this._set(askPxEl, askPx ? _fp(askPx) : '—');
+            const apCls = 'c-ask-px' + (!askPx ? ' is-empty' : '');
+            if (askPxEl.className !== apCls) askPxEl.className = apCls;
+
+            // ── ch[0] Acum Bid — ecualizador independiente por fila ─────────
+            // Barra: qty puntual de esta fila / max del viewport (sube y baja sin depender de otras)
+            // Texto: qty acumulada históricamente en este precio (independiente por precio)
+            const bidBar = ch[0].children[0];   // .c-bar
+            const bidAcumEl = ch[0].children[1];   // .c-acum-txt
+            if (bidQty > 0) {
+                const pct = Math.min(100, (bidQty / maxVol) * 100).toFixed(1) + '%';
+                if (bidBar.style.width !== pct) {
+                    bidBar.style.width = pct;
+                    bidBar.classList.remove('ob4-bar-bid-pulse');
+                    void bidBar.offsetWidth;
+                    bidBar.classList.add('ob4-bar-bid-pulse');
+                }
+                bidBar.style.opacity = bidReal ? '1' : '0.55';
+                // Texto: si tiene historial acumulado lo muestra; si es sintético/nuevo, muestra qty actual
+                const bidAccumQ = s.qtyAccumAt(bidPx);
+                this._set(bidAcumEl, _fq(bidAccumQ || bidQty));
+                const baCls = 'c-acum-txt' + (bidReal ? '' : ' is-synth');
+                if (bidAcumEl.className !== baCls) bidAcumEl.className = baCls;
+            } else {
+                if (bidBar.style.width !== '0%') bidBar.style.width = '0%';
+                this._set(bidAcumEl, '');
+            }
+
+            // ── ch[4] Acum Ask — ecualizador independiente por fila ─────────
+            const askBar = ch[4].children[0];   // .c-bar
+            const askAcumEl = ch[4].children[1];   // .c-acum-txt
+            if (askQty > 0) {
+                const pct = Math.min(100, (askQty / maxVol) * 100).toFixed(1) + '%';
+                if (askBar.style.width !== pct) {
+                    askBar.style.width = pct;
+                    askBar.classList.remove('ob4-bar-ask-pulse');
+                    void askBar.offsetWidth;
+                    askBar.classList.add('ob4-bar-ask-pulse');
+                }
+                askBar.style.opacity = askReal ? '1' : '0.55';
+                const askAccumQ = s.qtyAccumAt(askPx);
+                this._set(askAcumEl, _fq(askAccumQ || askQty));
+                const aaCls = 'c-acum-txt' + (askReal ? '' : ' is-synth');
+                if (askAcumEl.className !== aaCls) askAcumEl.className = aaCls;
+            } else {
+                if (askBar.style.width !== '0%') askBar.style.width = '0%';
+                this._set(askAcumEl, '');
+            }
+
+            // ── ch[2] Monto — notional ACUMULADO en este nivel de precio ─────
+            // Usa s.notionalAt(p) = suma histórica de deltas (qty↑ × precio) por nivel.
+            // Se incrementa automáticamente con cada snapshot de WS.
+            const montoEl = ch[2];
+            const mBidEl = montoEl.children[0];  // .m-bid
+            const mAskEl = montoEl.children[1];  // .m-ask
+            const _fm = v => {
+                if (!v) return '';
+                if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M$';
+                if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K$';
+                return '$' + v.toFixed(0);
+            };
+            const bMontoCls = 'm-bid' + (bidReal ? '' : ' is-synth');
+            const aMontoCls = 'm-ask' + (askReal ? '' : ' is-synth');
+            // Para niveles reales: most acum histórico. Sintéticos: siempre vacío.
+            this._set(mBidEl, bidReal ? _fm(s.notionalAt(bidPx)) : '');
+            this._set(mAskEl, askReal ? _fm(s.notionalAt(askPx)) : '');
+            if (mBidEl.className !== bMontoCls) mBidEl.className = bMontoCls;
+            if (mAskEl.className !== aMontoCls) mAskEl.className = aMontoCls;
+
+            r.price = bidPx || askPx;
+            r.bidQty = bidQty;
+            r.askQty = askQty;
+        }
+
+        this._lastInfo = { startIdx: bufferedStart, count, rowH, vpH, scrollTop };
         return this._lastInfo;
     }
 
@@ -444,13 +874,15 @@ class _OBRenderer {
         while (this._rows.length < count) {
             const el = document.createElement('div');
             el.className = 'ob4-row';
+            // 5 columnas: [bid-acum(bar+txt)][bid-px][monto(m-bid,m-ask)][ask-px][ask-acum(bar+txt)]
             el.innerHTML =
-                '<span class="c-monto"></span><span class="c-acum"></span>' +
-                '<span class="c-qty"></span><span class="c-bid"></span>' +
-                '<span class="c-ask"></span><span class="c-qty"></span>' +
-                '<span class="c-acum"></span><span class="c-monto"></span>';
+                '<div class="c-bid-acum"><span class="c-bar"></span><span class="c-acum-txt"></span></div>' +
+                '<span class="c-bid-px"></span>' +
+                '<div class="c-monto"><span class="m-bid"></span><span class="m-ask"></span></div>' +
+                '<span class="c-ask-px"></span>' +
+                '<div class="c-ask-acum"><span class="c-bar"></span><span class="c-acum-txt"></span></div>';
             this.pool.appendChild(el);
-            this._rows.push({ el, dataIdx: -1, bidData: null, askData: null });
+            this._rows.push({ el, price: 0, bidQty: 0, askQty: 0 });
         }
         for (let i = 0; i < this._rows.length; i++) {
             const show = i < count;
@@ -459,129 +891,19 @@ class _OBRenderer {
         }
     }
 
-    _set(el, txt) { if (el.textContent !== txt) el.textContent = txt; }
-    _fmt(v) { if (!v) return '0'; if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M'; if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K'; return `${v}`; }
-    _fmtM(v) { if (!v || v <= 0) return ''; if (v >= 1e6) return '$' + (v / 1e6).toFixed(1) + 'M'; if (v >= 1e3) return '$' + (v / 1e3).toFixed(0) + 'K'; return '$' + v.toFixed(0); }
-    destroy() { this._rows = []; this.pool.innerHTML = ''; }
-}
+    _set(el, txt) { if (el && el.textContent !== txt) el.textContent = txt; }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  _OBCanvas — Canvas de barras de volumen/profundidad
-// ─────────────────────────────────────────────────────────────────────────────
-class _OBCanvas {
-    constructor(canvas, store, tableWrap) {
-        this.canvas = canvas;
-        this.ctx = canvas.getContext('2d');
-        this.store = store;
-        this.wrapEl = tableWrap;
-        this._pulse = 0;
-    }
-
-    render(info) {
-        const ctx = this.ctx;
-        const w = this.wrapEl.clientWidth;
-        const h = this.wrapEl.clientHeight;
-        const dpr = window.devicePixelRatio || 1;
-
-        if (this.canvas.width !== Math.round(w * dpr) || this.canvas.height !== Math.round(h * dpr)) {
-            this.canvas.width = Math.round(w * dpr);
-            this.canvas.height = Math.round(h * dpr);
-            this.canvas.style.width = w + 'px';
-            this.canvas.style.height = h + 'px';
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        }
-
-        ctx.clearRect(0, 0, w, h);
-        if (!info || !this.store.midPrice) return;
-
-        const { startIdx, actualCount, rowH, poolTop, scrollTop } = info;
-        const cx = w / 2;
-        const bbR = Math.round(this.store.bestBid * 100) / 100;
-        const baR = Math.round(this.store.bestAsk * 100) / 100;
-
-        this._pulse = (this._pulse + 0.02) % 1;
-        const pulse = 0.4 + 0.3 * Math.sin(this._pulse * Math.PI * 2);
-
-        const colHdr = this.wrapEl.querySelector('.ob4-col-hdr');
-        const hdrH = colHdr ? colHdr.offsetHeight : 0;
-        const { maxVol, maxCum } = this.store.getMaxes(startIdx, actualCount);
-
-        for (let i = 0; i < actualCount; i++) {
-            const di = startIdx + i;
-            const bid = this.store.bidArray[di];
-            const ask = this.store.askArray[di];
-            const y = poolTop + i * rowH - scrollTop + hdrH;
-            if (y + rowH < 0 || y > h) continue;
-
-            const isBB = bid && bid.real && bid.price === bbR;
-            const isBA = ask && ask.real && ask.price === baR;
-
-            // Bid: profundidad acumulada (fondo)
-            if (bid && bid.cumQty > 0) {
-                const cr = bid.cumQty / maxCum;
-                const dW = Math.max(3, cr * cx * 0.92);
-                const aE = bid.real ? (.10 + cr * .22) : (.06 + cr * .12);
-                const g = ctx.createLinearGradient(cx - dW, 0, cx, 0);
-                g.addColorStop(0, 'rgba(34,197,94,.02)');
-                g.addColorStop(1, `rgba(34,197,94,${aE.toFixed(3)})`);
-                ctx.fillStyle = g; ctx.fillRect(cx - dW, y + .5, dW, rowH - 1);
-                ctx.fillStyle = `rgba(34,197,94,${(.2 + cr * .5).toFixed(2)})`;
-                ctx.fillRect(cx - dW, y + 1, 1.5, rowH - 2);
-            }
-
-            // Ask: profundidad acumulada (fondo)
-            if (ask && ask.cumQty > 0) {
-                const cr = ask.cumQty / maxCum;
-                const dW = Math.max(3, cr * cx * 0.92);
-                const aE = ask.real ? (.10 + cr * .22) : (.06 + cr * .12);
-                const g = ctx.createLinearGradient(cx, 0, cx + dW, 0);
-                g.addColorStop(0, `rgba(239,68,68,${aE.toFixed(3)})`);
-                g.addColorStop(1, 'rgba(239,68,68,.02)');
-                ctx.fillStyle = g; ctx.fillRect(cx, y + .5, dW, rowH - 1);
-                ctx.fillStyle = `rgba(239,68,68,${(.2 + cr * .5).toFixed(2)})`;
-                ctx.fillRect(cx + dW - 1.5, y + 1, 1.5, rowH - 2);
-            }
-
-            // Bid: barra de volumen instantáneo
-            if (bid && bid.qty > 0) {
-                const r = bid.qty / maxVol;
-                const bW = Math.max(3, r * cx * 0.85);
-                const a = isBB ? pulse + .2 : (.12 + r * .38);
-                const g = ctx.createLinearGradient(cx - bW, 0, cx, 0);
-                g.addColorStop(0, `rgba(34,197,94,${(a * .1).toFixed(3)})`);
-                g.addColorStop(.6, `rgba(34,197,94,${a.toFixed(3)})`);
-                g.addColorStop(1, `rgba(34,197,94,${(a * 1.15).toFixed(3)})`);
-                ctx.fillStyle = g; ctx.fillRect(cx - bW, y + .5, bW, rowH - 1);
-                ctx.fillStyle = `rgba(34,197,94,${(isBB ? .9 : .3 + r * .5).toFixed(2)})`;
-                ctx.fillRect(cx - bW, y + 1, 1.5, rowH - 2);
-                if (isBB) {
-                    ctx.shadowColor = 'rgba(34,197,94,.6)'; ctx.shadowBlur = 10;
-                    ctx.fillStyle = 'rgba(34,197,94,.08)'; ctx.fillRect(0, y, cx, rowH);
-                    ctx.shadowBlur = 0;
-                }
-            }
-
-            // Ask: barra de volumen instantáneo
-            if (ask && ask.qty > 0) {
-                const r = ask.qty / maxVol;
-                const bW = Math.max(3, r * cx * 0.85);
-                const a = isBA ? pulse + .2 : (.12 + r * .38);
-                const g = ctx.createLinearGradient(cx, 0, cx + bW, 0);
-                g.addColorStop(0, `rgba(239,68,68,${(a * 1.15).toFixed(3)})`);
-                g.addColorStop(.4, `rgba(239,68,68,${a.toFixed(3)})`);
-                g.addColorStop(1, `rgba(239,68,68,${(a * .1).toFixed(3)})`);
-                ctx.fillStyle = g; ctx.fillRect(cx, y + .5, bW, rowH - 1);
-                ctx.fillStyle = `rgba(239,68,68,${(isBA ? .9 : .3 + r * .5).toFixed(2)})`;
-                ctx.fillRect(cx + bW - 1.5, y + 1, 1.5, rowH - 2);
-                if (isBA) {
-                    ctx.shadowColor = 'rgba(239,68,68,.6)'; ctx.shadowBlur = 10;
-                    ctx.fillStyle = 'rgba(239,68,68,.08)'; ctx.fillRect(cx, y, cx, rowH);
-                    ctx.shadowBlur = 0;
-                }
-            }
-        }
+    destroy() {
+        // Desconectar el ResizeObserver para evitar memory leaks
+        if (this._ro) { this._ro.disconnect(); this._ro = null; }
+        this._rows = [];
+        this.pool.innerHTML = '';
     }
 }
+
+
+
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  WidgetLibroOrdenes — Widget principal (autónomo)
@@ -613,12 +935,11 @@ class WidgetLibroOrdenes extends ClaseBaseWidget {
         // Estado
         this._primerDato = false;
         this._timerNoData = null;
-        this._baseRange = null;   // para syncScale
+        this._rowH = 18;   // altura de fila propia (zoom independiente del chart)
 
         // Motores internos (se crean en renderizar)
         /** @type {_OBStore|null}    */ this._store = null;
         /** @type {_OBRenderer|null} */ this._renderer = null;
-        /** @type {_OBCanvas|null}   */ this._canvas = null;
         /** @type {number|null}      */ this._rafId = null;
 
         // Elementos DOM (se asignan en _buildDOM)
@@ -636,7 +957,6 @@ class WidgetLibroOrdenes extends ClaseBaseWidget {
         this._buildDOM();
         this._store = new _OBStore();
         this._renderer = new _OBRenderer(this._store, this._els);
-        this._canvas = new _OBCanvas(this._els.canvas, this._store, this._els.tableWrap);
 
         this._iniciarLoop();
         this._conectarWS();
@@ -673,6 +993,13 @@ class WidgetLibroOrdenes extends ClaseBaseWidget {
             <div class="ob4-header">
                 <span class="ob4-title">📊 DOM Depth</span>
                 <span class="ob4-status" data-el="status">Conectando…</span>
+                <span class="ob4-session-badge" data-el="sessionBadge" title="Sesión de mercado"></span>
+                <div class="ob4-zoom">
+                    <button data-el="zoomOut" title="Compactar filas">−</button>
+                    <span class="ob4-zoom-lbl" data-el="zoomLbl">20px</span>
+                    <button data-el="zoomIn" title="Ampliar filas">+</button>
+                    <button data-el="zoomReset" title="Zoom original" style="font-size:9px;width:22px;">↺</button>
+                </div>
             </div>
             <div class="ob4-summary">
                 <div class="ob4-side bid">
@@ -689,16 +1016,12 @@ class WidgetLibroOrdenes extends ClaseBaseWidget {
                 <span class="ob4-mid-spd">Spd: <span data-el="spread">—</span></span>
             </div>
             <div class="ob4-table-wrap" data-el="tableWrap">
-                <canvas class="ob4-canvas" data-el="canvas"></canvas>
                 <div class="ob4-col-hdr">
-                    <span class="h-monto">Monto</span>
-                    <span class="h-acum">Acum</span>
-                    <span class="h-qty">Qty</span>
-                    <span class="h-bid">Bid</span>
-                    <span class="h-ask">Ask</span>
-                    <span class="h-qty">Qty</span>
-                    <span class="h-acum">Acum</span>
-                    <span class="h-monto">Monto</span>
+                    <span class="h-bid-acum">Acum</span>
+                    <span class="h-bid-px">Bid</span>
+                    <span class="h-monto">$ Nivel</span>
+                    <span class="h-ask-px">Ask</span>
+                    <span class="h-ask-acum">Acum</span>
                 </div>
                 <div class="ob4-vp" data-el="vp">
                     <div class="ob4-spacer" data-el="spacer"></div>
@@ -715,7 +1038,32 @@ class WidgetLibroOrdenes extends ClaseBaseWidget {
             this._els[el.dataset.el] = el;
         });
 
-        // Tooltip de precio promedio al hacer hover sobre las filas
+        // ── Controles de zoom propios ──────────────────────────────────────
+        const ROW_MIN = 14, ROW_MAX = 40, ROW_DEF = 20, ROW_STEP = 2;
+        const _updateZoom = () => {
+            if (this._renderer) this._renderer.setRowHeight(this._rowH);
+            if (this._els.zoomLbl) this._els.zoomLbl.textContent = this._rowH + 'px';
+        };
+        if (this._els.zoomIn) {
+            this._els.zoomIn.addEventListener('click', () => {
+                this._rowH = Math.min(ROW_MAX, this._rowH + ROW_STEP);
+                _updateZoom();
+            });
+        }
+        if (this._els.zoomOut) {
+            this._els.zoomOut.addEventListener('click', () => {
+                this._rowH = Math.max(ROW_MIN, this._rowH - ROW_STEP);
+                _updateZoom();
+            });
+        }
+        if (this._els.zoomReset) {
+            this._els.zoomReset.addEventListener('click', () => {
+                this._rowH = ROW_DEF;
+                _updateZoom();
+            });
+        }
+
+        // ── Tooltip de precio por fila ───────────────────────────────
         this._tooltip = document.createElement('div');
         this._tooltip.className = 'ob4-tip';
         document.body.appendChild(this._tooltip);
@@ -727,10 +1075,9 @@ class WidgetLibroOrdenes extends ClaseBaseWidget {
             if (idx < 0 || idx >= this._renderer._rows.length) return;
             const r = this._renderer._rows[idx];
             const lines = [];
-            if (r.bidData && r.bidData.cumQty > 0 && r.bidData.monto > 0)
-                lines.push(`Bid Prom: $${(r.bidData.monto / r.bidData.cumQty).toFixed(2)} | Vol: ${r.bidData.cumQty}`);
-            if (r.askData && r.askData.cumQty > 0 && r.askData.monto > 0)
-                lines.push(`Ask Prom: $${(r.askData.monto / r.askData.cumQty).toFixed(2)} | Vol: ${r.askData.cumQty}`);
+            if (r.price) lines.push(`Precio: ${r.price}`);
+            if (r.bidQty > 0) lines.push(`Bid: ${r.bidQty}`);
+            if (r.askQty > 0) lines.push(`Ask: ${r.askQty}`);
             if (!lines.length) { this._tooltip.style.display = 'none'; return; }
             this._tooltip.innerHTML = lines.join('<br>');
             this._tooltip.style.display = 'block';
@@ -868,6 +1215,7 @@ class WidgetLibroOrdenes extends ClaseBaseWidget {
 
     _suscribirBus() {
         // ── CAMBIO_ACTIVO → limpiar y suscribir al nuevo símbolo ──────────
+        // NOTA: el Order Book NO escucha CAMBIO_PRECIO — su zoom es propio (botones − / ●  / +)
         this._escuchar(EVENTOS.CAMBIO_ACTIVO, datos => {
             const nuevo = datos.simbolo;
             if (!nuevo) return;
@@ -876,10 +1224,7 @@ class WidgetLibroOrdenes extends ClaseBaseWidget {
             this._simbolo = nuevo;
             this._primerDato = false;
 
-            if (this._store) {
-                this._store.reset();
-                this._baseRange = null;   // resetear zoom sync
-            }
+            if (this._store) this._store.reset();
 
             this._setStatus(`${nuevo}…`, false);
 
@@ -899,20 +1244,29 @@ class WidgetLibroOrdenes extends ClaseBaseWidget {
                 console.log(`[WidgetLibroOrdenes] 🔄 CAMBIO_ACTIVO → ${nuevo}`);
         });
 
-        // ── CAMBIO_PRECIO → sincronizar zoom de filas con la gráfica ──────
-        this._escuchar(EVENTOS.CAMBIO_PRECIO, datos => {
-            if (!this._renderer) return;
-            const min = datos.precioMin ?? datos.min_price;
-            const max = datos.precioMax ?? datos.max_price;
-            if (typeof min !== 'number' || typeof max !== 'number' || max <= min) return;
+        // ── SESION_MERCADO → solo actualizar el badge de sesión ──────────────────
+        // El OB sigue actualizando en TIEMPO REAL sin importar la sesión.
+        // Polygon sigue enviando datos en AH / pre-market, y el OB los muestra siempre.
+        this._escuchar(EVENTOS.SESION_MERCADO, ({ session, label }) => {
+            const sesionRaw = (session || '').toLowerCase();
 
-            const range = max - min;
-            if (!this._baseRange || range / this._baseRange > 2.5 || this._baseRange / range > 2.5)
-                this._baseRange = range;
+            // Actualizar badge de sesión en el header
+            const badge = this._els.sessionBadge;
+            if (badge) {
+                const MAP = {
+                    pre_market: { txt: 'PRE', cls: 'ob4-sess-pre' },
+                    regular: { txt: 'OPEN', cls: 'ob4-sess-open' },
+                    after_hours: { txt: 'AFTER', cls: 'ob4-sess-after' },
+                    closed: { txt: 'CLOSED', cls: 'ob4-sess-closed' },
+                };
+                const cfg = MAP[sesionRaw] || { txt: label || session, cls: 'ob4-sess-closed' };
+                badge.textContent = cfg.txt;
+                badge.className = `ob4-session-badge ${cfg.cls}`;
+                badge.title = `Sesión: ${label || session}`;
+            }
 
-            const zoom = range / this._baseRange;
-            const clamped = Math.max(0.3, Math.min(5.0, 1.0 / Math.max(0.01, zoom)));
-            this._renderer.setRowHeight(18 * clamped);
+            // OB siempre en vivo — solo log informativo
+            console.log(`[WidgetLibroOrdenes] ▶ Sesión: ${label || session} — OB siempre activo (tiempo real)`);
         });
     }
 
@@ -922,9 +1276,8 @@ class WidgetLibroOrdenes extends ClaseBaseWidget {
 
     _iniciarLoop() {
         const tick = () => {
-            if (this._renderer && this._canvas) {
-                const info = this._renderer.render();
-                this._canvas.render(info);
+            if (this._renderer) {
+                this._renderer.render();
             }
             this._rafId = requestAnimationFrame(tick);
         };
