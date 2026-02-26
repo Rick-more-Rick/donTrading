@@ -962,3 +962,104 @@ body.v2-body {
     background: rgba(107, 114, 128, 0.10);
     border-color: rgba(107, 114, 128, 0.30);
 }
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MARKET SESSIONS OVERLAY — Neon Glow Flags
+   Capa de div absoluto sobre la gráfica de velas.
+   pointer-events: none en el contenedor, auto solo en cada etiqueta.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Contenedor absolute que cubre toda la zona del canvas */
+.v2-session-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 8;         /* encima del canvas (z=1) pero debajo del crosshair (z=2) y toolbar (z=10) */
+}
+
+/* Cada etiqueta de sesión */
+.v2-session-flag {
+    position: absolute;
+    top: 10px;
+    pointer-events: auto;   /* habilitar hover para el tooltip */
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--sf-color, #22ff88);
+    background: color-mix(in srgb, var(--sf-color, #22ff88) 10%, transparent);
+    color: var(--sf-color, #22ff88);
+    font: 600 9px 'JetBrains Mono', monospace;
+    letter-spacing: .5px;
+    white-space: nowrap;
+    cursor: default;
+    user-select: none;
+    transform: translateX(-50%);
+    /* Neon glow animado */
+    box-shadow: 0 0 7px color-mix(in srgb, var(--sf-color, #22ff88) 35%, transparent),
+                inset 0 0 6px color-mix(in srgb, var(--sf-color, #22ff88) 8%, transparent);
+    animation: sf-pulse 2.8s ease-in-out infinite;
+    transition: box-shadow .2s ease, background .2s ease;
+}
+
+.v2-session-flag:hover {
+    background: color-mix(in srgb, var(--sf-color, #22ff88) 22%, transparent);
+    box-shadow: 0 0 16px color-mix(in srgb, var(--sf-color, #22ff88) 60%, transparent),
+                inset 0 0 10px color-mix(in srgb, var(--sf-color, #22ff88) 15%, transparent);
+}
+
+/* Línea vertical que desciende desde la etiqueta hacia las velas */
+.v2-session-flag::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 1px;
+    height: 22px;
+    background: linear-gradient(to bottom,
+        var(--sf-color, #22ff88),
+        color-mix(in srgb, var(--sf-color, #22ff88) 0%, transparent));
+    opacity: .5;
+    pointer-events: none;
+}
+
+/* Animación de pulso Neon */
+@keyframes sf-pulse {
+    0%, 100% {
+        box-shadow: 0 0 6px color-mix(in srgb, var(--sf-color, #22ff88) 30%, transparent);
+    }
+    50% {
+        box-shadow: 0 0 14px color-mix(in srgb, var(--sf-color, #22ff88) 65%, transparent),
+                    0 0 26px color-mix(in srgb, var(--sf-color, #22ff88) 20%, transparent);
+    }
+}
+
+/* Tooltip de cuenta regresiva (fixed, creado una vez en el body) */
+.v2-session-tip {
+    position: fixed;
+    z-index: 300;
+    background: rgba(10, 14, 23, .96);
+    border: 1px solid rgba(255, 255, 255, .10);
+    border-radius: 6px;
+    padding: 6px 12px;
+    pointer-events: none;
+    display: none;
+    white-space: nowrap;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, .55);
+}
+
+.v2-session-tip-label {
+    font: 600 10px 'JetBrains Mono', monospace;
+    color: #e2e8f0;
+    display: block;
+    margin-bottom: 2px;
+}
+
+.v2-session-tip-countdown {
+    font: 500 11px 'JetBrains Mono', monospace;
+    display: block;
+}

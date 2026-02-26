@@ -128,8 +128,15 @@
     align-items:stretch; height:var(--row-h,20px);
     min-height:var(--row-h,20px); position:relative; overflow:hidden;
     font-family:'JetBrains Mono',monospace; font-size:9.5px;
-    border-bottom:1px solid rgba(33,38,45,.5);
+    border-bottom:1px solid rgba(33,38,45,var(--ob4-border-op,.5));
     transition:background .08s;
+}
+/* ── Densidad dinámica de filas: fade de contenido al comprimir ─ */
+/* Cuando rowHeight < 40px el contenido hace fade-out (efecto barcode) */
+.ob4-table-wrap { --content-opacity:1; --ob4-border-op:.5; }
+.ob4-row > * {
+    opacity:var(--content-opacity,1);
+    transition:opacity 0.1s ease;
 }
 /* ── Acum Bid (columna izquierda) — barra ecualizador + texto acum ─ */
 .c-bid-acum {
@@ -253,6 +260,7 @@ class _OBStore {
         this.bestAsk = 0;
         this.spread = 0;
         this._step = 0.01;
+        this._extraStepFactor = 1;   // factor de zoom de paso (1 = 0.04%, 2 = 0.08%, etc.)
         this._maxLevels = 500;
         this._BASE_LEVELS = 500;
         // Acumulador persistente de notional por precio (no se resetea entre snapshots)
@@ -272,11 +280,10 @@ class _OBStore {
     _computeStep(price) {
         if (!price || price <= 0) return 0.01;
         const raw = price * 0.0004;   // 0.04 % del precio
-        // Incrementos "bonitos" ordenados de menor a mayor
         const NICE = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05,
             0.10, 0.20, 0.50, 1.00, 2.00, 5.00, 10.00, 20.00, 50.00];
-        for (const s of NICE) { if (s >= raw) return s; }
-        return 50.00;
+        for (const s of NICE) { if (s >= raw) return s * this._extraStepFactor; }
+        return 50.00 * this._extraStepFactor;
     }
 
     /** Redondea al step exacto para evitar floating-point drift */
@@ -398,6 +405,7 @@ class _OBStore {
         this._notionalAccum.clear();
         this._prevQty.clear();
         this._qtyAccum.clear();
+        this._extraStepFactor = 1;   // resetear zoom de paso al cambiar activo
     }
 
     /**
@@ -536,8 +544,11 @@ class _OBStore {
             let last = this.askArray[this.askArray.length - 1];
             let cum = last.cumQty, cumReal = last.cumReal || 0, cumM = last.monto || 0;
             let p = this._snap(last.price + step);
+            // Límite de precio: no expandir más allá de 10× la ask inicial (protección)
+            const askStart = this.askArray[0]?.price || 0;
+            const pMax = askStart > 0 ? askStart * 10 : Infinity;
 
-            while (this.askArray.length < n) {
+            while (this.askArray.length < n && p < pMax) {
                 const entry = this.askMap.get(p);
                 let qty, real;
                 if (entry && entry.qty > 0) {
@@ -622,10 +633,23 @@ class _OBRenderer {
     }
 
     setRowHeight(h) {
-        this._rowH = Math.max(10, Math.min(60, h));
+        this._rowH = Math.max(4, Math.min(100, h));
         this._lastSH = 0;       // fuerza re-calculo del spacer
         this._centered = false; // re-centrar con nueva altura
         this._poolReady = false; // recalcular pool para nueva altura de fila
+    }
+
+    /**
+     * Actualiza el alto de fila desde el zoom de rueda sin resetear el scroll.
+     * A diferencia de setRowHeight, este método NO re-centra ni recrea el pool —
+     * el loop RAF recalcula visCount en el siguiente frame y llena el espacio solo.
+     */
+    setRowHeightSmooth(h) {
+        const clamped = Math.max(4, Math.min(100, h));
+        if (this._rowH === clamped) return;
+        this._rowH = clamped;
+        this._lastSH = 0;   // fuerza re-calculo del spacer
+        // NO reseteamos _centered ni _poolReady — el RAF llena el espacio solo
     }
 
     /** Centra en top: fila 0 = best bid | best ask */
@@ -935,7 +959,10 @@ class WidgetLibroOrdenes extends ClaseBaseWidget {
         // Estado
         this._primerDato = false;
         this._timerNoData = null;
-        this._rowH = 18;   // altura de fila propia (zoom independiente del chart)
+        this._rowH = 20;   // altura de fila propia (zoom visual — botones + / -)
+        // Factor inicial = 4 → da ~20px con la fórmula lineal de _applyWheelZoom
+        this._wheelZoomFactor = 4;   // zoom de paso: 1=0.04%, ..., 20=0.80%
+        this._WHEEL_ZOOM_MAX = 20;   // límite superior del factor
 
         // Motores internos (se crean en renderizar)
         /** @type {_OBStore|null}    */ this._store = null;
@@ -1039,10 +1066,11 @@ class WidgetLibroOrdenes extends ClaseBaseWidget {
         });
 
         // ── Controles de zoom propios ──────────────────────────────────────
-        const ROW_MIN = 14, ROW_MAX = 40, ROW_DEF = 20, ROW_STEP = 2;
+        const ROW_MIN = 4, ROW_MAX = 100, ROW_DEF = 20, ROW_STEP = 2;
         const _updateZoom = () => {
             if (this._renderer) this._renderer.setRowHeight(this._rowH);
             if (this._els.zoomLbl) this._els.zoomLbl.textContent = this._rowH + 'px';
+            this._updateDensityStyle(this._rowH);
         };
         if (this._els.zoomIn) {
             this._els.zoomIn.addEventListener('click', () => {
@@ -1059,8 +1087,36 @@ class WidgetLibroOrdenes extends ClaseBaseWidget {
         if (this._els.zoomReset) {
             this._els.zoomReset.addEventListener('click', () => {
                 this._rowH = ROW_DEF;
+                // Factor=4 corresponde a ~20px en la fórmula lineal del wheel zoom
+                this._wheelZoomFactor = 4;
+                if (this._store) {
+                    this._store._extraStepFactor = 1;
+                    const ref = this._store.bestBid || this._store.bestAsk || this._store.midPrice;
+                    this._store._step = this._store._computeStep(ref);
+                    this._store._rebuild();
+                }
                 _updateZoom();
+                this._updateZoomStepLabel();
             });
+        }
+
+        // ── Rueda del ratón en el viewport = ZOOM (no scroll) ──────────────────
+        // Intercepta wheelevents para zoom de precio-paso + tamaño de fila.
+        // La barra de desplazamiento nativa sigue funcionando para navegar arriba/abajo.
+        if (this._els.vp) {
+            this._els.vp.addEventListener('wheel', e => {
+                e.preventDefault();
+                // deltaY > 0 = rueda hacia abajo = zoom OUT (filas más pequeñas, paso más fino)
+                // deltaY < 0 = rueda hacia arriba = zoom IN  (filas más grandes, paso más curso)
+                this._applyWheelZoom(e.deltaY < 0 ? 1 : -1);
+            }, { passive: false });
+
+            // Scroll nativo → activar render para que el infinite scroll detecte
+            // si el usuario llegó al borde y debe expandir contenido.
+            // (El dirty-flag bloquea render en WS silencioso, por eso es necesario.)
+            this._els.vp.addEventListener('scroll', () => {
+                this._dirty = true;
+            }, { passive: true });
         }
 
         // ── Tooltip de precio por fila ───────────────────────────────
@@ -1079,7 +1135,12 @@ class WidgetLibroOrdenes extends ClaseBaseWidget {
             if (r.bidQty > 0) lines.push(`Bid: ${r.bidQty}`);
             if (r.askQty > 0) lines.push(`Ask: ${r.askQty}`);
             if (!lines.length) { this._tooltip.style.display = 'none'; return; }
-            this._tooltip.innerHTML = lines.join('<br>');
+            // Usar nodos de texto para evitar inyección HTML con datos del WS
+            this._tooltip.textContent = '';
+            lines.forEach((l, i) => {
+                if (i > 0) this._tooltip.appendChild(document.createElement('br'));
+                this._tooltip.appendChild(document.createTextNode(l));
+            });
             this._tooltip.style.display = 'block';
             const rect = row.getBoundingClientRect();
             this._tooltip.style.left = (rect.left - 10) + 'px';
@@ -1091,8 +1152,85 @@ class WidgetLibroOrdenes extends ClaseBaseWidget {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    //  WEBSOCKET PROPIO → orderbook.py (:8766)
+    //  ZOOM DE RUEDA — precio-paso + tamaño de fila
     // ══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Aplica zoom por rueda del ratón.
+     * El scroll del viewport (scrollbar) sigue funcionando para navegar arriba/abajo.
+     * La rueda del ratón cambia el tamaño de fila:
+     *   Rueda ↓ = zoom OUT = filas más pequeñas = MAS filas visibles = más precios en pantalla
+     *   Rueda ↑ = zoom IN  = filas más grandes = MENOS filas = vista de detalle
+     * El step de precio también cambia para mantener coherencia con la densidad visual:
+     *   Zoom OUT (factor↓): paso más fino (0.04%×factor) → más niveles de precio
+     *   Zoom IN  (factor↑): paso más grueso → menos niveles pero mayor margen de precio
+     */
+    _applyWheelZoom(dir) {
+        // dir: +1 = zoom IN (rueda ↑), -1 = zoom OUT (rueda ↓)
+        const ROW_MIN = 4, ROW_MAX = 100;
+        const ZOOM_MAX = this._WHEEL_ZOOM_MAX;   // 20
+        const newFactor = Math.max(1, Math.min(ZOOM_MAX,
+            this._wheelZoomFactor + dir));
+        if (newFactor === this._wheelZoomFactor) return;
+
+        this._wheelZoomFactor = newFactor;
+
+        // ── Altura de fila: interpolación lineal entre ROW_MIN y ROW_MAX ───────
+        // factor=1 → ROW_MIN (4px) · factor=ZOOM_MAX (20) → ROW_MAX (100px)
+        // factor=4 → ~20px (default visual cómodo al arrancar)
+        const newH = Math.round(
+            ROW_MIN + (newFactor - 1) * (ROW_MAX - ROW_MIN) / (ZOOM_MAX - 1)
+        );
+        this._rowH = newH;
+        if (this._renderer) this._renderer.setRowHeightSmooth(newH);
+        this._updateDensityStyle(newH);
+
+        // ── Step de precio: zoom OUT (newFactor↓) = step más fino ───────────
+        //    zoom OUT = ver más filas = paso más fino para más niveles de precio
+        //    zoom IN  = ver menos filas = paso más grueso (rango de precio amplio)
+        if (this._store) {
+            this._store._extraStepFactor = newFactor;
+            const ref = this._store.bestBid || this._store.bestAsk || this._store.midPrice;
+            if (ref > 0) {
+                const newStep = this._store._computeStep(ref);
+                if (newStep !== this._store._step) {
+                    this._store._step = newStep;
+                    this._store._maxLevels = this._store._BASE_LEVELS;
+                }
+            }
+            this._store._rebuild();
+        }
+
+        this._updateZoomStepLabel();
+        // Señalar al RAF que debe renderizar el nuevo rowH en --row-h
+        this._dirty = true;
+    }
+
+    /** Actualiza el label del header para mostrar el step actual (p.ej. "0.08%") */
+    _updateZoomStepLabel() {
+        if (!this._els.zoomLbl) return;
+        const stepPct = (this._wheelZoomFactor * 0.04).toFixed(2);
+        this._els.zoomLbl.textContent = `${this._rowH}px · ${stepPct}%`;
+    }
+
+    /**
+     * Actualiza las CSS vars --content-opacity y --ob4-border-op en función
+     * de la altura de fila actual, creando el efecto "Stacked Elastic Rows":
+     *   rowH >= 40px → contenido 100% visible, borde normal
+     *   rowH  < 40px → contenido hace fade-out gradual
+     *   rowH  < 16px → bordes desaparecen = efecto barcode/bloque sólido
+     */
+    _updateDensityStyle(rowH) {
+        const tw = this._els.tableWrap;
+        if (!tw) return;
+        // Contenido siempre 100% visible — el usuario quiere filas delgadas pero legibles.
+        // Solo los bordes se atenúan levemente cuando las filas son muy extremas (< 6px)
+        // para dar el efecto de bloque sólido sin hacer desaparecer el contenido.
+        tw.style.setProperty('--content-opacity', '1');
+        const borderOp = rowH >= 6 ? 0.5 : Math.max(0, (rowH - 4) / 2 * 0.5);
+        tw.style.setProperty('--ob4-border-op', borderOp.toFixed(2));
+    }
+
 
     _conectarWS() {
         if (this._detenido) return;
@@ -1111,6 +1249,9 @@ class WidgetLibroOrdenes extends ClaseBaseWidget {
         this._ws.onopen = () => {
             console.log('[WidgetLibroOrdenes] ✅ WS conectado');
             this._wsReconexiones = 0;
+            // Resetear _primerDato para que el log de primer snapshot aparezca
+            // correctamente también en reconexiones (sin cambio de activo)
+            this._primerDato = false;
             this._setStatus('Conectado', true);
             busEventos.emitir(EVENTOS.CONEXION_ESTADO, { tipo: 'book', conectado: true, estado: 'conectado' });
             // Si ya hay símbolo seleccionado, suscribirse ahora
@@ -1185,6 +1326,7 @@ class WidgetLibroOrdenes extends ClaseBaseWidget {
                 spread: datos.spread ?? 0,
                 mid_price: datos.mid_price ?? 0,
             });
+            this._dirty = true;   // señal al RAF loop para renderizar este frame
         }
 
         // ── Sincronizar precio con la gráfica ──────────────────────────────
@@ -1275,8 +1417,10 @@ class WidgetLibroOrdenes extends ClaseBaseWidget {
     // ══════════════════════════════════════════════════════════════════════
 
     _iniciarLoop() {
+        this._dirty = false;   // flag: true cuando llegan datos nuevos del WS
         const tick = () => {
-            if (this._renderer) {
+            if (this._renderer && this._dirty) {
+                this._dirty = false;
                 this._renderer.render();
             }
             this._rafId = requestAnimationFrame(tick);

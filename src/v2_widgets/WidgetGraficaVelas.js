@@ -90,6 +90,12 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
 
         // Referencia al eje (se inyecta desde fuera)
         this._widgetEje = null;
+
+        // ── Market Sessions Overlay ──────────────────────────────────────────
+        this._sessionOverlay = null;   // div contenedor del overlay
+        this._sessionTip = null;       // tooltip de cuenta regresiva (fixed en body)
+        this._sessionPool = [];        // <span> reutilizables en el overlay
+        this._ultimoSessionOverlay = 0; // throttle de 200ms
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -164,6 +170,18 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
         this._overlayLoading = this._crearOverlayLoading();
         this._zonaChart.appendChild(this._overlayLoading);
 
+        // ── Market Sessions Overlay (div absoluto, pointer-events:none) ──
+        this._sessionOverlay = document.createElement('div');
+        this._sessionOverlay.className = 'v2-session-overlay';
+        this._zonaChart.appendChild(this._sessionOverlay);
+
+        // ── Tooltip de cuenta regresiva (fixed en body, un solo nodo) ──
+        this._sessionTip = document.createElement('div');
+        this._sessionTip.className = 'v2-session-tip';
+        this._sessionTip.innerHTML = '<span class="v2-session-tip-label"></span>' +
+            '<span class="v2-session-tip-countdown"></span>';
+        document.body.appendChild(this._sessionTip);
+
         // ── Toolbar interna (símbolo + timeframe + controles) ──
         this._toolbar = this._crearToolbar();
         this._zonaChart.appendChild(this._toolbar);
@@ -204,6 +222,13 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
         // Handlers globales
         if (this._hdMouseMove) window.removeEventListener('mousemove', this._hdMouseMove);
         if (this._hdMouseUp) window.removeEventListener('mouseup', this._hdMouseUp);
+
+        // Limpiar overlay de sesiones
+        this._limpiarSessionOverlay();
+        if (this._sessionTip && this._sessionTip.parentNode) {
+            this._sessionTip.parentNode.removeChild(this._sessionTip);
+        }
+        this._sessionTip = null;
 
         super.destruir();
     }
@@ -415,6 +440,13 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
 
             // Eje de tiempo (cada 500ms para no sobrecargar el DOM)
             const ahora = Date.now();
+
+            // ── Market Sessions Overlay (throttle 200ms) ──────────────────
+            if (ahora - this._ultimoSessionOverlay > 200) {
+                this._ultimoSessionOverlay = ahora;
+                this._buildSessionOverlay(todas);
+            }
+
             if (ahora - this._ultimoTimeAxis > 500) {
                 this._ultimoTimeAxis = ahora;
                 this._actualizarEjeTiempo(todas);
@@ -477,9 +509,12 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
         this.estadoPrecio.resetZoom();
         this.motorVelas.resetPan();
 
-        // Limpiar banderas de sesión: nuevo historial → banderas frescas
+        // Limpiar banderas y overlay de sesiones: nuevo historial → banderas frescas
         this._banderas = [];
         this._sesionAnterior = null;
+        this._limpiarSessionOverlay();
+        // Limpiar caché de sesiones ET (nuevo activo = nuevos timestamps)
+        this._sessionEtCache = null;
 
         const sym = payload.simbolo || payload.symbol || this._simbolo;
 
@@ -593,11 +628,11 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
     _detectarBanderasHistoricas(velas) {
         if (!velas || velas.length < 2) return;
 
-        // En timeframes >= 1H cada vela no representa un minuto → la sesión por timestamp
-        // no puede detectar transiciones intra-día. Saltamos para evitar banderas erróneas.
+        // En timeframes >= 30min cada vela puede abarcar múltiples sesiones
+        // → la detección por timestamp no es precisa. Saltamos para evitar banderas erróneas.
         const tf = this._timeframe || 60;
-        if (tf >= 3600) {
-            console.log(`[GraficaVelas] 🚩 Banderas históricas omitidas en timeframe >= 1H (tf=${tf}s)`);
+        if (tf >= 1800) {
+            console.log(`[GraficaVelas] 🚩 Banderas históricas omitidas en timeframe >= 30min (tf=${tf}s)`);
             return;
         }
 
@@ -1371,4 +1406,130 @@ class WidgetGraficaVelas extends ClaseBaseWidget {
     static _esCriptomoneda(simbolo) {
         return /BTC|ETH|DOGE|SOL|XRP|ADA|LTC|AVAX|LINK|MATIC|BNB|DOT|UNI|ATOM/i.test(simbolo || '');
     }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  MARKET SESSIONS OVERLAY - Motor de etiquetas Neon Glow
+    // ════════════════════════════════════════════════════════════════════════
+
+    static get SESSION_CONFIG() {
+        return {
+            pre_market: { label: '🟠 Pre-Market', color: '#FF8C00', nextHourET: 9.5 },
+            regular: { label: '🟢 Regular Session', color: '#22FF88', nextHourET: 16.0 },
+            after_hours: { label: '🟡 After Hours', color: '#FFDD00', nextHourET: 20.0 },
+            closed: { label: '🔴 Cerrado', color: '#FF3131', nextHourET: 4.0 },
+            weekend: { label: '🔵 Fin de Semana', color: '#00D4FF', nextHourET: null },
+        };
+    }
+
+    _sessionEtFromTs(tsUnix) {
+        if (!this._sessionEtCache) this._sessionEtCache = new Map();
+        const bucket = Math.floor(tsUnix / 3600) * 3600;
+        if (this._sessionEtCache.has(bucket)) return this._sessionEtCache.get(bucket);
+        const fecha = new Date((bucket + 1800) * 1000);
+        const partes = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/New_York',
+            hour: 'numeric', minute: 'numeric',
+            weekday: 'short', hour12: false,
+        }).formatToParts(fecha);
+        const get2 = (type) => partes.find(p => p.type === type)?.value ?? '';
+        const wd = get2('weekday');
+        let sesion;
+        if (wd === 'Sat' || wd === 'Sun') {
+            sesion = 'weekend';
+        } else {
+            const h = parseInt(get2('hour'), 10) + parseInt(get2('minute'), 10) / 60;
+            if      (h >= 4.0  && h < 9.5)  sesion = 'pre_market';
+            else if (h >= 9.5  && h < 16.0) sesion = 'regular';
+            else if (h >= 16.0 && h < 20.0) sesion = 'after_hours';
+            else sesion = 'closed';
+        }
+        this._sessionEtCache.set(bucket, sesion);
+        return sesion;
+    }
+
+_sessionCountdown(sesion) {
+    const cfg = WidgetGraficaVelas.SESSION_CONFIG[sesion];
+    const ahoraET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    if (!cfg || cfg.nextHourET === null) {
+        const dlunes = ((8 - ahoraET.getDay()) % 7) || 7;
+        const min = dlunes * 24 * 60 - ahoraET.getHours() * 60 - ahoraET.getMinutes() + 240;
+        return '🕒 Lunes Pre-Market en ' + Math.floor(min / 60) + 'h ' + (min % 60) + 'm';
+    }
+    const hActual = ahoraET.getHours() + ahoraET.getMinutes() / 60;
+    const diff = cfg.nextHourET > hActual ? cfg.nextHourET - hActual : cfg.nextHourET + 24 - hActual;
+    const minR = Math.round(diff * 60), hh = Math.floor(minR / 60), mm = minR % 60;
+    const acc = { pre_market: 'Abre en', regular: 'Cierra en', after_hours: 'Cierra en', closed: 'Pre-Market en' };
+    return '🕒 ' + (acc[sesion] || 'Cambio en') + ' ' + (hh > 0 ? hh + 'h ' : '') + mm + 'm';
+}
+
+_buildSessionOverlay(todas) {
+    if (!this._sessionOverlay || !this.motorVelas || !todas.length) return;
+    const motor = this.motorVelas;
+    const ancho = this._cw;
+    if (!ancho) return;
+    const total = todas.length;
+    const cant = Math.min(motor.velasVisibles, total);
+    if (cant <= 0) return;
+    const esp = ancho / cant;
+    const fracPx = (motor._fraccionDesplazamiento || 0) * esp;
+    const fin = total - (motor._desplazamiento || 0);
+    const ini = Math.max(0, fin - cant);
+    const finI = Math.min(fin, total - 1);
+    const SESIONES = WidgetGraficaVelas.SESSION_CONFIG;
+
+    // Detectar transiciones de sesión en el viewport
+    const hitos = [];
+    let prev = this._sessionEtFromTs(todas[ini].time);
+    for (let i = ini + 1; i <= finI; i++) {
+        const s = this._sessionEtFromTs(todas[i].time);
+        if (s !== prev) {
+            const x = (i - ini + 0.5) * esp - fracPx;
+            if (x > 20 && x < ancho - 20) hitos.push({ x, sesion: s });
+            prev = s;
+        }
+    }
+
+    // Ajustar pool de spans
+    const ov = this._sessionOverlay;
+    while (ov.children.length > hitos.length) ov.removeChild(ov.lastChild);
+    while (ov.children.length < hitos.length) {
+        const sp = document.createElement('span');
+        sp.className = 'v2-session-flag';
+        sp.addEventListener('mouseenter', (e) => {
+            if (!this._sessionTip) return;
+            const c = SESIONES[sp.dataset.sesion]; if (!c) return;
+            this._sessionTip.querySelector('.v2-session-tip-label').textContent = c.label;
+            const cd = this._sessionTip.querySelector('.v2-session-tip-countdown');
+            cd.textContent = this._sessionCountdown(sp.dataset.sesion);
+            cd.style.color = c.color;
+            Object.assign(this._sessionTip.style, {
+                display: 'block',
+                left: (e.clientX + 12) + 'px', top: (e.clientY - 36) + 'px'
+            });
+        });
+        sp.addEventListener('mousemove', (e) => {
+            if (this._sessionTip) Object.assign(this._sessionTip.style,
+                { left: (e.clientX + 12) + 'px', top: (e.clientY - 36) + 'px' });
+        });
+        sp.addEventListener('mouseleave', () => {
+            if (this._sessionTip) this._sessionTip.style.display = 'none';
+        });
+        ov.appendChild(sp);
+    }
+
+    hitos.forEach((h, i) => {
+        const sp = ov.children[i];
+        const cfg = SESIONES[h.sesion] || SESIONES.closed;
+        sp.dataset.sesion = h.sesion;
+        sp.textContent = cfg.label;
+        sp.style.setProperty('--sf-color', cfg.color);
+        sp.style.left = h.x + 'px';
+    });
+}
+
+_limpiarSessionOverlay() {
+    if (this._sessionOverlay) this._sessionOverlay.innerHTML = '';
+    if (this._sessionTip) this._sessionTip.style.display = 'none';
+}
+
 }
